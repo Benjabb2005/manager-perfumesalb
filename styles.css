@@ -32,6 +32,12 @@ body {
   min-height: 100vh;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -490,6 +496,18 @@ textarea {
 
 .tab-panel.active {
   display: block;
+}
+
+.tab-panel:not(.active) {
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+}
+
+.tab-panel.active {
+  visibility: visible;
+  height: auto;
+  overflow: visible;
 }
 
 .stats-grid,
@@ -1049,5 +1067,222 @@ tbody tr:hover {
 
   .perfume-actions {
     justify-content: flex-start;
+  }
+
+  .inventory-tools,
+  .inventory-tools .search-input,
+  .search-input,
+  .form-actions,
+  .add-item-button,
+  .primary-button,
+  .secondary-button,
+  .ghost-button {
+    width: 100%;
+    max-width: none;
+  }
+
+  .mini-item,
+  .stack-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --radius-lg: 16px;
+    --radius-md: 12px;
+  }
+
+  body {
+    background: linear-gradient(135deg, #f7f1e8 0%, #ead9c4 100%);
+  }
+
+  .sidebar-toggle,
+  .sidebar-collapsed .sidebar-toggle,
+  .sidebar-open .sidebar-toggle {
+    top: 12px;
+    right: 12px;
+    left: auto;
+  }
+
+  .sidebar {
+    width: min(300px, 88vw);
+    padding-top: 70px;
+  }
+
+  .sidebar-open .sidebar-toggle {
+    transform: none;
+  }
+
+  .sidebar-open .sidebar-toggle:hover {
+    transform: translateY(-1px);
+  }
+
+  .main-content,
+  .sidebar-collapsed .main-content {
+    padding: 72px 12px 16px;
+  }
+
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .section-header h3 {
+    font-size: 1.38rem;
+    line-height: 1.05;
+  }
+
+  .stats-grid,
+  .dashboard-grid,
+  .layout-grid,
+  .finance-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .panel {
+    padding: 14px;
+    border-radius: var(--radius-lg);
+  }
+
+  .panel-header {
+    margin-bottom: 12px;
+  }
+
+  .stat-card {
+    padding: 14px;
+    border-radius: var(--radius-md);
+  }
+
+  .toast-region {
+    top: 70px;
+    right: 12px;
+    left: 12px;
+  }
+
+  .auth-card {
+    padding: 16px;
+  }
+
+  .auth-brand h1 {
+    font-size: 2rem;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+    padding: 11px 12px;
+  }
+
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  table,
+  .inventory-table,
+  .compact-price-table {
+    min-width: 0;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+    width: 100%;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  tbody tr {
+    border: 1px solid rgba(117, 88, 78, 0.12);
+    border-radius: var(--radius-md);
+    background: rgba(255, 250, 242, 0.82);
+    box-shadow: 0 12px 28px rgba(69, 33, 18, 0.08);
+    overflow: hidden;
+  }
+
+  tbody tr:hover {
+    background: rgba(255, 250, 242, 0.9);
+  }
+
+  td {
+    display: grid;
+    grid-template-columns: minmax(104px, 38%) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(117, 88, 78, 0.1);
+    overflow-wrap: anywhere;
+  }
+
+  td:last-child {
+    border-bottom: 0;
+  }
+
+  td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  td[colspan] {
+    display: block;
+    color: var(--muted);
+  }
+
+  td[colspan]::before {
+    content: none;
+  }
+
+  .inline-actions {
+    justify-content: flex-start;
+  }
+
+  .chip-button,
+  .text-button,
+  .danger-text-button {
+    min-height: 36px;
+  }
+
+  .perfume-form-grid .field-ml {
+    max-width: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .confirm-actions {
+    display: grid;
+  }
+
+  .nav-tab,
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .logout-button {
+    padding: 11px 14px;
+  }
+
+  td {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

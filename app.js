@@ -144,6 +144,7 @@ function bindEvents() {
   refs.sidebarToggle.addEventListener("click", toggleSidebar);
   refs.mainContent.addEventListener("click", closeSidebarOnSmallScreens);
   document.addEventListener("keydown", closeSidebarWithEscape);
+  window.addEventListener("resize", handleResponsiveSidebar);
 
   refs.tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -239,7 +240,7 @@ function closeConfirmDialog(result) {
 
 function initSidebarState() {
   const savedValue = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-  const shouldOpen = savedValue === null ? window.innerWidth > 1080 : savedValue === "true";
+  const shouldOpen = window.innerWidth <= 1080 ? false : savedValue === null ? true : savedValue === "true";
   setSidebarOpen(shouldOpen, false);
 }
 
@@ -267,6 +268,12 @@ function closeSidebarOnSmallScreens() {
 function closeSidebarWithEscape(event) {
   if (event.key === "Escape" && document.body.classList.contains("sidebar-open")) {
     setSidebarOpen(false);
+  }
+}
+
+function handleResponsiveSidebar() {
+  if (window.innerWidth <= 1080 && document.body.classList.contains("sidebar-open")) {
+    setSidebarOpen(false, false);
   }
 }
 
@@ -310,6 +317,7 @@ function seedDefaultDates() {
 function switchTab(targetId) {
   refs.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === targetId));
   refs.panels.forEach((panel) => panel.classList.toggle("active", panel.id === targetId));
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function loadState() {
@@ -1589,12 +1597,12 @@ function renderDollarTable() {
   movements.forEach((movement) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${formatDate(movement.date)}</td>
-      <td>${escapeHtml(movement.type)}</td>
-      <td>${movement.pesosAmount === "" ? "-" : formatCurrency(movement.pesosAmount)}</td>
-      <td>${movement.dollarPrice === "" ? "-" : formatCurrency(movement.dollarPrice)}</td>
-      <td>${roundCurrency(movement.dollarsAmount)}</td>
-      <td>${escapeHtml(movement.detail || "-")}</td>
+      <td data-label="Fecha">${formatDate(movement.date)}</td>
+      <td data-label="Tipo">${escapeHtml(movement.type)}</td>
+      <td data-label="Pesos">${movement.pesosAmount === "" ? "-" : formatCurrency(movement.pesosAmount)}</td>
+      <td data-label="Precio dolar">${movement.dollarPrice === "" ? "-" : formatCurrency(movement.dollarPrice)}</td>
+      <td data-label="Dolares">${roundCurrency(movement.dollarsAmount)}</td>
+      <td data-label="Detalle">${escapeHtml(movement.detail || "-")}</td>
     `;
     refs.dollarTableBody.appendChild(row);
   });
@@ -1617,10 +1625,10 @@ function renderBankMovementsTable() {
   movements.forEach((movement) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${formatDate(movement.date)}</td>
-      <td>${escapeHtml(movement.type)}</td>
-      <td>${escapeHtml(movement.detail || "-")}</td>
-      <td>${formatCurrency(movement.amount)}</td>
+      <td data-label="Fecha">${formatDate(movement.date)}</td>
+      <td data-label="Tipo">${escapeHtml(movement.type)}</td>
+      <td data-label="Detalle">${escapeHtml(movement.detail || "-")}</td>
+      <td data-label="Monto">${formatCurrency(movement.amount)}</td>
     `;
     refs.bankMovementsTableBody.appendChild(row);
   });
@@ -1651,23 +1659,23 @@ function renderProductsTable() {
   filtered.forEach((item) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td><strong>${escapeHtml(item.name)}</strong></td>
-      <td>${escapeHtml(item.brand || "-")}</td>
-      <td>${item.ml ? `${escapeHtml(String(item.ml))} ml` : "-"}</td>
-      <td>${formatCurrency(item.cost)}</td>
-      <td>${formatCurrency(item.price)}</td>
-      <td>${formatCurrency(getPaymentNet(item.price, "Transferencia"))}</td>
-      <td>${formatCurrency(getPaymentNet(item.price, "Tarjeta1"))}</td>
-      <td>${formatCurrency(getPaymentNet(item.price, "Tarjeta2"))}</td>
-      <td><span class="tag ${item.stock <= 1 ? "low" : "ok"}">${item.stock}</span></td>
-      <td><button type="button" class="text-button" data-edit-product="1">Editar</button></td>
-      <td>
+      <td data-label="Producto"><strong>${escapeHtml(item.name)}</strong></td>
+      <td data-label="Marca">${escapeHtml(item.brand || "-")}</td>
+      <td data-label="ML">${item.ml ? `${escapeHtml(String(item.ml))} ml` : "-"}</td>
+      <td data-label="Costo">${formatCurrency(item.cost)}</td>
+      <td data-label="Precio lista">${formatCurrency(item.price)}</td>
+      <td data-label="Transf. / efectivo">${formatCurrency(getPaymentNet(item.price, "Transferencia"))}</td>
+      <td data-label="Tarjeta 1 cuota">${formatCurrency(getPaymentNet(item.price, "Tarjeta1"))}</td>
+      <td data-label="Tarjeta 2 cuotas">${formatCurrency(getPaymentNet(item.price, "Tarjeta2"))}</td>
+      <td data-label="Stock"><span class="tag ${item.stock <= 1 ? "low" : "ok"}">${item.stock}</span></td>
+      <td data-label="Editar"><button type="button" class="text-button" data-edit-product="1">Editar</button></td>
+      <td data-label="Ajustar">
         <div class="inline-actions">
           <button type="button" class="chip-button" data-stock-action="-1">-1</button>
           <button type="button" class="chip-button" data-stock-action="1">+1</button>
         </div>
       </td>
-      <td><button type="button" class="danger-text-button" data-delete-product="1">Borrar</button></td>
+      <td data-label="Eliminar"><button type="button" class="danger-text-button" data-delete-product="1">Borrar</button></td>
     `;
 
     row.querySelectorAll("[data-stock-action]").forEach((button) => {
@@ -1696,12 +1704,12 @@ function renderSalesTable() {
     .forEach((sale) => {
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td>${formatDate(sale.date)}</td>
-        <td>${escapeHtml(sale.customer || "-")}</td>
-        <td>${sale.items.map((item) => `${escapeHtml(item.name)} x${item.qty}`).join(", ")}</td>
-        <td>${escapeHtml(getPaymentLabel(sale.paymentMethod))}</td>
-        <td>${formatCurrency(sale.total)}</td>
-        <td><button type="button" class="danger-text-button">Borrar</button></td>
+        <td data-label="Fecha">${formatDate(sale.date)}</td>
+        <td data-label="Cliente">${escapeHtml(sale.customer || "-")}</td>
+        <td data-label="Items">${sale.items.map((item) => `${escapeHtml(item.name)} x${item.qty}`).join(", ")}</td>
+        <td data-label="Metodo">${escapeHtml(getPaymentLabel(sale.paymentMethod))}</td>
+        <td data-label="Total neto">${formatCurrency(sale.total)}</td>
+        <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
       `;
       row.querySelector("button").addEventListener("click", () => deleteSale(sale.id));
       refs.salesTableBody.appendChild(row);
@@ -1724,11 +1732,11 @@ function renderExpensesTable() {
     .forEach((expense) => {
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td>${formatDate(expense.date)}</td>
-        <td>${escapeHtml(expense.supplier || "-")}</td>
-        <td>${escapeHtml(expense.category || "-")}</td>
-        <td>${formatCurrency(expense.amount)}</td>
-        <td><button type="button" class="danger-text-button">Borrar</button></td>
+        <td data-label="Fecha">${formatDate(expense.date)}</td>
+        <td data-label="Detalle">${escapeHtml(expense.supplier || "-")}</td>
+        <td data-label="Categoria">${escapeHtml(expense.category || "-")}</td>
+        <td data-label="Monto">${formatCurrency(expense.amount)}</td>
+        <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
       `;
       row.querySelector("button").addEventListener("click", () => deleteExpense(expense.id));
       refs.ordersTableBody.appendChild(row);
@@ -2278,17 +2286,17 @@ function renderPriceCalculator() {
 
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td><strong>${escapeHtml(perfume.name)}</strong></td>
-        <td>${escapeHtml(perfume.brand || "-")}</td>
-        <td>${formatCurrency(perfume.cost)}</td>
-        <td>${formatCurrency(perfume.price)}</td>
-        <td>${formatCurrency(suggestedPrice)}</td>
-        <td>${formatCurrency(transferPrice)}</td>
-        <td>${formatCurrency(markdownPrice)}</td>
-        <td>${formatCurrency(promoPrice)}</td>
-        <td>${formatCurrency(suggestedPrice - (perfume.cost || 0))}</td>
-        <td>${formatCurrency(transferPrice - (perfume.cost || 0))}</td>
-        <td>${formatCurrency(promoPrice - (perfume.cost || 0))}</td>
+        <td data-label="Producto"><strong>${escapeHtml(perfume.name)}</strong></td>
+        <td data-label="Marca">${escapeHtml(perfume.brand || "-")}</td>
+        <td data-label="Costo">${formatCurrency(perfume.cost)}</td>
+        <td data-label="Precio actual">${formatCurrency(perfume.price)}</td>
+        <td data-label="Precio sugerido">${formatCurrency(suggestedPrice)}</td>
+        <td data-label="Transferencia">${formatCurrency(transferPrice)}</td>
+        <td data-label="Rebajado">${formatCurrency(markdownPrice)}</td>
+        <td data-label="Promo 20%">${formatCurrency(promoPrice)}</td>
+        <td data-label="Ganancia">${formatCurrency(suggestedPrice - (perfume.cost || 0))}</td>
+        <td data-label="Ganancia transf.">${formatCurrency(transferPrice - (perfume.cost || 0))}</td>
+        <td data-label="Ganancia promo">${formatCurrency(promoPrice - (perfume.cost || 0))}</td>
       `;
       refs.priceCalculatorTableBody.appendChild(row);
     });
