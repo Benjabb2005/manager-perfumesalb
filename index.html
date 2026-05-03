@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Perfumeria Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="confirm-overlay" id="confirmOverlay" hidden>
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <p class="eyebrow">Confirmar accion</p>
+      <h2 id="confirmTitle">Estas seguro?</h2>
+      <p id="confirmMessage"></p>
+      <div class="confirm-actions">
+        <button type="button" class="ghost-button" id="confirmCancelBtn">Cancelar</button>
+        <button type="button" class="primary-button danger-button" id="confirmAcceptBtn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="auth-screen" id="authScreen" hidden>
+    <div class="auth-card">
+      <div class="auth-brand">
+        <p class="eyebrow">Perfumes.alb</p>
+        <h1>Ingresar al panel</h1>
+        <p>Accede a tu inventario, ventas y banco con datos sincronizados en tu cuenta.</p>
+      </div>
+
+      <div class="auth-status" id="authStatus"></div>
+
+      <div class="auth-grid">
+        <form id="authLoginForm" class="auth-form">
+          <h2>Iniciar sesion</h2>
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="email" required>
+          </label>
+          <label>
+            Contrasena
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit" class="primary-button">Entrar</button>
+        </form>
+
+        <form id="authRegisterForm" class="auth-form">
+          <h2>Crear cuenta</h2>
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="email" required>
+          </label>
+          <label>
+            Contrasena
+            <input type="password" name="password" autocomplete="new-password" minlength="6" required>
+          </label>
+          <button type="submit" class="secondary-button">Crear usuario</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div class="app-shell">
+    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Cerrar menu" aria-controls="sidebar" aria-expanded="true">
+      <span class="sidebar-toggle-bars" aria-hidden="true"></span>
+    </button>
+
+    <aside class="sidebar" id="sidebar">
+      <div>
+        <p class="eyebrow">Gestion</p>
+        <h1>Perfumes.alb</h1>
+      </div>
+
+      <nav class="nav-tabs" aria-label="Secciones">
+        <button class="nav-tab active" data-tab-target="dashboard">Resumen</button>
+        <button class="nav-tab" data-tab-target="analisis">Analisis</button>
+        <button class="nav-tab" data-tab-target="precios">Precios</button>
+        <button class="nav-tab" data-tab-target="perfumes">Perfumes</button>
+        <button class="nav-tab" data-tab-target="ventas">Ventas</button>
+        <button class="nav-tab" data-tab-target="encargos">Gastos</button>
+        <button class="nav-tab" data-tab-target="banco">Banco</button>
+        <button class="nav-tab" data-tab-target="respaldo">Respaldo</button>
+        <button class="nav-tab" data-tab-target="ajustes">Ajustes</button>
+      </nav>
+
+      <div class="sidebar-tools">
+        <button type="button" class="logout-button" id="authLogoutBtn" hidden>Cerrar sesion</button>
+      </div>
+
+    </aside>
+
+    <main class="main-content">
+      <section class="tab-panel active" id="dashboard">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Panel</p>
+            <h3>Resumen general</h3>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <div class="dashboard-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Acumulado inicial</h4>
+            </div>
+            <form id="historyForm" class="form-grid">
+              <label>
+                Total vendido antes de la app
+                <input type="number" name="historicalSalesAmount" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Cantidad de perfumes ya vendidos
+                <input type="number" name="historicalSoldUnits" min="0" step="1" value="0">
+              </label>
+              <label>
+                Total gastado antes de la app
+                <input type="number" name="historicalExpensesAmount" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Inversion inicial
+                <input type="number" name="historicalInitialInvestment" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Cantidad de perfumes ya comprados
+                <input type="number" name="historicalBoughtUnits" min="0" step="1" value="0">
+              </label>
+              <label>
+                Suscripciones previas
+                <input type="number" name="historicalSubscriptionsAmount" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Retiros previos
+                <input type="number" name="historicalWithdrawalsAmount" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Pesos usados en dolares previos
+                <input type="number" name="historicalDollarPurchasePesos" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Dolares comprados previos
+                <input type="number" name="historicalDollarBoughtUnits" min="0" step="0.01" value="0">
+              </label>
+              <label>
+                Dolares gastados previos
+                <input type="number" name="historicalDollarSpentUnits" min="0" step="0.01" value="0">
+              </label>
+              <button type="submit" class="primary-button">Guardar acumulado</button>
+            </form>
+          </article>
+
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Stock actual</h4>
+            </div>
+            <div id="lowStockList"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Ultimas ventas</h4>
+            </div>
+            <div id="recentSales"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Ultimos gastos</h4>
+            </div>
+            <div id="pendingOrders"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="analisis">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Metricas</p>
+            <h3>Analisis del negocio</h3>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="analysisStatsGrid"></div>
+
+        <div class="dashboard-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Perfumes mas vendidos</h4>
+            </div>
+            <div id="topProducts"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Mas facturacion</h4>
+            </div>
+            <div id="topRevenueProducts"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Metodos de pago</h4>
+            </div>
+            <div id="paymentBreakdown"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Canales de venta</h4>
+            </div>
+            <div id="channelBreakdown"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="perfumes">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Catalogo</p>
+            <h3>Perfumes y stock</h3>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Nuevo perfume</h4>
+            </div>
+            <form id="perfumeForm" class="form-grid perfume-form-grid">
+              <input type="hidden" name="perfumeId">
+              <label class="field-name">
+                Nombre
+                <input type="text" name="name" required>
+              </label>
+              <label class="field-brand">
+                Marca
+                <input type="text" name="brand" list="brandSuggestions" placeholder="Escribe o elige una marca">
+              </label>
+              <div class="full-width perfume-second-row">
+                <label class="field-cost">
+                  Costo
+                  <input type="number" name="cost" min="0" step="0.01" value="0">
+                </label>
+                <label class="field-price">
+                  Precio venta
+                  <input type="number" name="price" min="0" step="0.01" required>
+                </label>
+                <label class="field-ml">
+                  ML
+                  <input type="number" name="ml" min="0" step="1" value="100">
+                </label>
+                <label class="field-stock">
+                  Stock
+                  <input type="number" name="stock" min="0" step="1" value="0" required>
+                </label>
+                <div class="form-actions perfume-actions">
+                  <button type="submit" class="primary-button" id="savePerfumeBtn">Guardar perfume</button>
+                  <button type="button" class="ghost-button" id="cancelPerfumeEditBtn" hidden>Cancelar edicion</button>
+                </div>
+              </div>
+            </form>
+            <datalist id="brandSuggestions"></datalist>
+          </article>
+
+          <article class="panel panel-span-2 inventory-panel">
+            <div class="panel-header inventory-header">
+              <h4>Inventario</h4>
+              <div class="inventory-tools">
+                <input id="productSearch" class="search-input" type="search" placeholder="Buscar perfume...">
+                <select id="brandFilter" class="search-input">
+                  <option value="">Todas las marcas</option>
+                </select>
+                <select id="productSort" class="search-input">
+                  <option value="name-asc">Nombre A-Z</option>
+                  <option value="price-desc">Precio mayor a menor</option>
+                  <option value="price-asc">Precio menor a mayor</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="inventory-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Marca</th>
+                    <th>ML</th>
+                    <th>Costo</th>
+                    <th>Precio lista</th>
+                    <th>Transferencia / efectivo</th>
+                    <th>Tarjeta 1 cuota</th>
+                    <th>Tarjeta 2 cuotas</th>
+                    <th>Stock</th>
+                    <th>Editar</th>
+                    <th>Ajustar</th>
+                    <th>Eliminar</th>
+                  </tr>
+                </thead>
+                <tbody id="productsTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="precios">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Calculadora</p>
+            <h3>Precios y ganancias</h3>
+          </div>
+        </div>
+
+        <div class="prices-layout">
+          <article class="panel price-form-panel">
+            <div class="panel-header">
+              <h4>Formula base</h4>
+            </div>
+            <form id="priceFormulaForm" class="form-grid price-form-grid">
+              <label>
+                Suma fija al costo
+                <input type="number" name="baseExtra" min="0" step="0.01" value="5000">
+              </label>
+              <label>
+                Multiplicador
+                <input type="number" name="markupMultiplier" min="0" step="0.01" value="1.5">
+              </label>
+              <label>
+                Rebaja fija
+                <input type="number" name="markdownAmount" min="0" step="0.01" value="2000">
+              </label>
+              <label>
+                Descuento promo %
+                <input type="number" name="promoDiscountPercent" min="0" max="100" step="0.01" value="20">
+              </label>
+            </form>
+          </article>
+
+          <article class="panel price-table-panel">
+            <div class="panel-header">
+              <h4>Tabla de precios</h4>
+            </div>
+            <div class="table-wrap">
+              <table class="compact-price-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Marca</th>
+                    <th>Costo</th>
+                    <th>Precio actual</th>
+                    <th>Precio sugerido</th>
+                    <th>Transferencia</th>
+                    <th>Rebajado</th>
+                    <th>Promo 20%</th>
+                    <th>Ganancia</th>
+                    <th>Ganancia transf.</th>
+                    <th>Ganancia promo</th>
+                  </tr>
+                </thead>
+                <tbody id="priceCalculatorTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="ventas">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Movimientos</p>
+            <h3>Registrar venta</h3>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Nueva venta</h4>
+            </div>
+            <form id="saleForm" class="form-grid">
+              <label>
+                Cliente
+                <input type="text" name="customer" placeholder="Nombre o @usuario">
+              </label>
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Metodo de pago
+                <select name="paymentMethod">
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Tarjeta1">Tarjeta 1 cuota</option>
+                  <option value="Tarjeta2">Tarjeta 2 cuotas</option>
+                </select>
+              </label>
+              <label>
+                Canal
+                <input type="text" name="channel" placeholder="Instagram, WhatsApp, local...">
+              </label>
+
+              <div class="full-width inline-form">
+                <label>
+                  Producto
+                  <select id="saleProductSelect"></select>
+                </label>
+                <label>
+                  Cantidad
+                  <input type="number" id="saleQtyInput" min="1" step="1" value="1">
+                </label>
+                <label>
+                  Cobras neto por unidad
+                  <input type="number" id="saleUnitPriceInput" min="0" step="0.01" readonly>
+                </label>
+              </div>
+
+              <div class="full-width">
+                <button type="button" class="secondary-button add-item-button" id="addSaleItemBtn">Agregar item</button>
+              </div>
+
+              <div class="full-width">
+                <div class="mini-list" id="saleItemsList"></div>
+              </div>
+
+              <div class="full-width totals-box" id="saleSummary"></div>
+              <button type="submit" class="primary-button">Guardar venta</button>
+            </form>
+          </article>
+
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Historial de ventas</h4>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>Items</th>
+                    <th>Metodo</th>
+                    <th>Total neto</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="salesTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="encargos">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Gastos</p>
+            <h3>Registrar gasto</h3>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Nuevo gasto</h4>
+            </div>
+            <form id="orderForm" class="form-grid">
+              <label>
+                Detalle
+                <input type="text" name="supplier" placeholder="Compra, envio, retiro, etc.">
+              </label>
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Categoria
+                <select name="category">
+                  <option value="Reposicion">Reposicion</option>
+                  <option value="Envio">Envio</option>
+                  <option value="Publicidad">Publicidad</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </label>
+              <label>
+                Monto
+                <input type="number" name="amount" min="0" step="0.01" value="0" required>
+              </label>
+              <label class="full-width">
+                Notas
+                <textarea name="notes" rows="3" placeholder="Dato opcional"></textarea>
+              </label>
+              <div class="full-width totals-box" id="orderSummary"></div>
+              <button type="submit" class="primary-button">Guardar gasto</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Historial de gastos</h4>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Detalle</th>
+                    <th>Categoria</th>
+                    <th>Monto</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="banco">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Banco</p>
+            <h3>Dolares, suscripciones y retiros</h3>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="bankStatsGrid"></div>
+
+        <div class="finance-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Compra de dolares</h4>
+            </div>
+            <form id="dollarPurchaseForm" class="form-grid">
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Cant pesos
+                <input type="number" name="pesosAmount" min="0" step="0.01" value="0" required>
+              </label>
+              <label>
+                Precio dolar
+                <input type="number" name="dollarPrice" min="0" step="0.01" value="0" required>
+              </label>
+              <label>
+                Dolares
+                <input type="number" name="dollarsAmount" min="0" step="0.01" value="0" readonly>
+              </label>
+              <label class="full-width">
+                Nota
+                <input type="text" name="notes" placeholder="Compra banco, cueva, etc.">
+              </label>
+              <button type="submit" class="primary-button">Guardar compra</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Gasto en dolares</h4>
+            </div>
+            <form id="dollarSpendForm" class="form-grid">
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Dolares gastados
+                <input type="number" name="dollarsAmount" min="0" step="0.01" value="0" required>
+              </label>
+              <label class="full-width">
+                Detalle
+                <input type="text" name="detail" placeholder="Pago proveedor, viaje, etc.">
+              </label>
+              <button type="submit" class="primary-button">Guardar gasto USD</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Suscripciones</h4>
+            </div>
+            <form id="subscriptionForm" class="form-grid">
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Monto
+                <input type="number" name="amount" min="0" step="0.01" value="0" required>
+              </label>
+              <label class="full-width">
+                Detalle
+                <input type="text" name="detail" placeholder="Canva, Spotify, Meta, etc.">
+              </label>
+              <button type="submit" class="primary-button">Guardar suscripcion</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Retiros</h4>
+            </div>
+            <form id="withdrawalForm" class="form-grid">
+              <label>
+                Fecha
+                <input type="date" name="date" required>
+              </label>
+              <label>
+                Monto
+                <input type="number" name="amount" min="0" step="0.01" value="0" required>
+              </label>
+              <label class="full-width">
+                Detalle
+                <input type="text" name="detail" placeholder="Retiro Agus, Benja, caja, etc.">
+              </label>
+              <button type="submit" class="primary-button">Guardar retiro</button>
+            </form>
+          </article>
+
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Movimientos de dolares</h4>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Pesos</th>
+                    <th>Precio dolar</th>
+                    <th>Dolares</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody id="dollarTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel panel-span-2">
+            <div class="panel-header">
+              <h4>Suscripciones y retiros</h4>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Detalle</th>
+                    <th>Monto</th>
+                  </tr>
+                </thead>
+                <tbody id="bankMovementsTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="respaldo">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Seguridad</p>
+            <h3>Respaldo de datos</h3>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Exportar</h4>
+            </div>
+            <p class="panel-copy">
+              Descarga un archivo con tus perfumes, ventas y gastos.
+            </p>
+            <div class="stack-list">
+              <button id="exportExcelBtn" class="primary-button">Exportar Excel</button>
+              <button id="exportBtn" class="secondary-button">Exportar respaldo JSON</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Importar</h4>
+            </div>
+            <p class="panel-copy">
+              Sube un respaldo JSON exportado desde esta misma app.
+            </p>
+            <div class="stack-list">
+              <input type="file" id="importInput" accept=".json">
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="ajustes">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Configuracion</p>
+            <h3>Ajustes</h3>
+          </div>
+        </div>
+
+        <div class="layout-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Datos de prueba</h4>
+            </div>
+            <p class="panel-copy">
+              Carga perfumes, ventas y movimientos ficticios para probar el panel.
+            </p>
+            <div class="stack-list">
+              <button class="secondary-button" id="loadDemoDataBtn">Cargar datos de ejemplo</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Tiendanube</h4>
+            </div>
+            <p class="panel-copy">
+              Trae productos y stock desde Tiendanube para vincularlos con este panel.
+            </p>
+            <div class="stack-list">
+              <button class="secondary-button" id="syncTiendanubeBtn">Sincronizar productos</button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h4>Zona de riesgo</h4>
+            </div>
+            <p class="panel-copy">
+              Borra los datos guardados de esta cuenta y deja la app en cero.
+            </p>
+            <div class="stack-list">
+              <button class="ghost-button danger" id="clearAllDataBtn">Borrar todo</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">Todavia no hay datos para mostrar.</div>
+  </template>
+
+  <script src="database-config.js?v=20260427-dynamic"></script>
+  <script src="app.js?v=20260427-dynamic"></script>
+</body>
+</html>

@@ -1,0 +1,2446 @@
+const STORAGE_KEY = "perfumeria-manager-v2";
+const SIDEBAR_STORAGE_KEY = "perfumeria-sidebar-open";
+const DATABASE_NAME = "perfumeria-manager-db";
+const DATABASE_VERSION = 1;
+const STATE_STORE_NAME = "app-state";
+const STATE_RECORD_KEY = "current-state";
+const DEFAULT_REMOTE_TABLE = "app_state";
+const AUTH_STORAGE_KEY = "perfumeria-auth-session";
+const TIENDANUBE_FUNCTION_BASE = "/.netlify/functions";
+
+const PAYMENT_METHODS = {
+  Transferencia: {
+    label: "Transferencia",
+    factor: (price) => price * 0.9,
+  },
+  Efectivo: {
+    label: "Efectivo",
+    factor: (price) => price * 0.9,
+  },
+  Tarjeta1: {
+    label: "Tarjeta 1 cuota",
+    factor: (price) => price - ((price * 0.0559) * 1.21),
+  },
+  Tarjeta2: {
+    label: "Tarjeta 2 cuotas",
+    factor: (price) => price - ((price * 0.0559) * 1.21) - ((price * 0.0889) * 1.21),
+  },
+};
+
+const state = {
+  perfumes: [],
+  sales: [],
+  expenses: [],
+  subscriptions: [],
+  withdrawals: [],
+  dollarPurchases: [],
+  dollarSpends: [],
+  draftSaleItems: [],
+  history: {
+    salesAmount: 0,
+    soldUnits: 0,
+    expensesAmount: 0,
+    initialInvestment: 0,
+    boughtUnits: 0,
+    subscriptionsAmount: 0,
+    withdrawalsAmount: 0,
+    dollarPurchasePesos: 0,
+    dollarBoughtUnits: 0,
+    dollarSpentUnits: 0,
+  },
+};
+
+let databasePromise;
+let saveQueue = Promise.resolve();
+let remoteDatabaseWarningShown = false;
+let authSession = null;
+
+const refs = {};
+const priceFormulaState = {
+  baseExtra: 5000,
+  markupMultiplier: 1.5,
+  markdownAmount: 2000,
+  promoDiscountPercent: 20,
+};
+
+document.addEventListener("DOMContentLoaded", async () => {
+  cacheElements();
+  initSidebarState();
+  initAuthState();
+  await loadState();
+  bindEvents();
+  seedDefaultDates();
+  renderAll();
+});
+
+function cacheElements() {
+  refs.sidebar = document.getElementById("sidebar");
+  refs.authScreen = document.getElementById("authScreen");
+  refs.sidebarToggle = document.getElementById("sidebarToggle");
+  refs.appShell = document.querySelector(".app-shell");
+  refs.mainContent = document.querySelector(".main-content");
+  refs.tabs = document.querySelectorAll(".nav-tab");
+  refs.panels = document.querySelectorAll(".tab-panel");
+  refs.statsGrid = document.getElementById("statsGrid");
+  refs.analysisStatsGrid = document.getElementById("analysisStatsGrid");
+  refs.bankStatsGrid = document.getElementById("bankStatsGrid");
+  refs.topProducts = document.getElementById("topProducts");
+  refs.topRevenueProducts = document.getElementById("topRevenueProducts");
+  refs.paymentBreakdown = document.getElementById("paymentBreakdown");
+  refs.channelBreakdown = document.getElementById("channelBreakdown");
+  refs.lowStockList = document.getElementById("lowStockList");
+  refs.recentSales = document.getElementById("recentSales");
+  refs.pendingOrders = document.getElementById("pendingOrders");
+  refs.historyForm = document.getElementById("historyForm");
+
+  refs.perfumeForm = document.getElementById("perfumeForm");
+  refs.brandSuggestions = document.getElementById("brandSuggestions");
+  refs.savePerfumeBtn = document.getElementById("savePerfumeBtn");
+  refs.cancelPerfumeEditBtn = document.getElementById("cancelPerfumeEditBtn");
+  refs.productSearch = document.getElementById("productSearch");
+  refs.brandFilter = document.getElementById("brandFilter");
+  refs.productSort = document.getElementById("productSort");
+  refs.productsTableBody = document.getElementById("productsTableBody");
+
+  refs.saleForm = document.getElementById("saleForm");
+  refs.saleProductSelect = document.getElementById("saleProductSelect");
+  refs.saleQtyInput = document.getElementById("saleQtyInput");
+  refs.saleUnitPriceInput = document.getElementById("saleUnitPriceInput");
+  refs.addSaleItemBtn = document.getElementById("addSaleItemBtn");
+  refs.saleItemsList = document.getElementById("saleItemsList");
+  refs.saleSummary = document.getElementById("saleSummary");
+  refs.salesTableBody = document.getElementById("salesTableBody");
+
+  refs.orderForm = document.getElementById("orderForm");
+  refs.orderSummary = document.getElementById("orderSummary");
+  refs.ordersTableBody = document.getElementById("ordersTableBody");
+  refs.dollarPurchaseForm = document.getElementById("dollarPurchaseForm");
+  refs.dollarSpendForm = document.getElementById("dollarSpendForm");
+  refs.subscriptionForm = document.getElementById("subscriptionForm");
+  refs.withdrawalForm = document.getElementById("withdrawalForm");
+  refs.dollarTableBody = document.getElementById("dollarTableBody");
+  refs.bankMovementsTableBody = document.getElementById("bankMovementsTableBody");
+
+  refs.exportBtn = document.getElementById("exportBtn");
+  refs.exportExcelBtn = document.getElementById("exportExcelBtn");
+  refs.importInput = document.getElementById("importInput");
+  refs.loadDemoDataBtn = document.getElementById("loadDemoDataBtn");
+  refs.syncTiendanubeBtn = document.getElementById("syncTiendanubeBtn");
+  refs.clearAllDataBtn = document.getElementById("clearAllDataBtn");
+  refs.priceFormulaForm = document.getElementById("priceFormulaForm");
+  refs.priceCalculatorTableBody = document.getElementById("priceCalculatorTableBody");
+  refs.authStatus = document.getElementById("authStatus");
+  refs.authLoginForm = document.getElementById("authLoginForm");
+  refs.authRegisterForm = document.getElementById("authRegisterForm");
+  refs.authLogoutBtn = document.getElementById("authLogoutBtn");
+  refs.toastRegion = document.getElementById("toastRegion");
+  refs.confirmOverlay = document.getElementById("confirmOverlay");
+  refs.confirmMessage = document.getElementById("confirmMessage");
+  refs.confirmCancelBtn = document.getElementById("confirmCancelBtn");
+  refs.confirmAcceptBtn = document.getElementById("confirmAcceptBtn");
+}
+
+function bindEvents() {
+  refs.sidebarToggle.addEventListener("click", toggleSidebar);
+  refs.mainContent.addEventListener("click", closeSidebarOnSmallScreens);
+  document.addEventListener("keydown", closeSidebarWithEscape);
+
+  refs.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      switchTab(tab.dataset.tabTarget);
+      closeSidebarOnSmallScreens();
+    });
+  });
+
+  refs.perfumeForm.addEventListener("submit", handlePerfumeSubmit);
+  refs.cancelPerfumeEditBtn.addEventListener("click", resetPerfumeForm);
+  refs.historyForm.addEventListener("submit", handleHistorySubmit);
+  refs.productSearch.addEventListener("input", renderProductsTable);
+  refs.brandFilter.addEventListener("change", renderProductsTable);
+  refs.productSort.addEventListener("change", renderProductsTable);
+
+  refs.saleProductSelect.addEventListener("change", syncSaleUnitPrice);
+  refs.saleForm.paymentMethod.addEventListener("change", syncSaleUnitPrice);
+  refs.addSaleItemBtn.addEventListener("click", addSaleDraftItem);
+  refs.saleForm.addEventListener("submit", handleSaleSubmit);
+
+  refs.orderForm.addEventListener("submit", handleExpenseSubmit);
+  refs.dollarPurchaseForm.addEventListener("submit", handleDollarPurchaseSubmit);
+  refs.dollarPurchaseForm.pesosAmount.addEventListener("input", syncDollarPurchaseAmount);
+  refs.dollarPurchaseForm.dollarPrice.addEventListener("input", syncDollarPurchaseAmount);
+  refs.dollarSpendForm.addEventListener("submit", handleDollarSpendSubmit);
+  refs.subscriptionForm.addEventListener("submit", handleSubscriptionSubmit);
+  refs.withdrawalForm.addEventListener("submit", handleWithdrawalSubmit);
+
+  refs.exportBtn.addEventListener("click", exportData);
+  refs.exportExcelBtn.addEventListener("click", exportExcelWorkbook);
+  refs.importInput.addEventListener("change", importData);
+  refs.loadDemoDataBtn.addEventListener("click", loadDemoData);
+  refs.syncTiendanubeBtn.addEventListener("click", syncTiendanubeProducts);
+  refs.clearAllDataBtn.addEventListener("click", clearAllData);
+  refs.priceFormulaForm.addEventListener("input", handlePriceFormulaInput);
+  refs.authLoginForm.addEventListener("submit", handleLoginSubmit);
+  refs.authRegisterForm.addEventListener("submit", handleRegisterSubmit);
+  refs.authLogoutBtn.addEventListener("click", handleLogout);
+  refs.confirmCancelBtn.addEventListener("click", () => closeConfirmDialog(false));
+  refs.confirmAcceptBtn.addEventListener("click", () => closeConfirmDialog(true));
+  refs.confirmOverlay.addEventListener("click", (event) => {
+    if (event.target === refs.confirmOverlay) closeConfirmDialog(false);
+  });
+}
+
+let confirmResolver = null;
+
+function showNotification(message, type = "success", title = "Listo") {
+  if (!refs.toastRegion) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <div class="toast-content">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>
+    <button type="button" class="toast-close" aria-label="Cerrar notificacion">×</button>
+  `;
+
+  const closeToast = () => {
+    if (!toast.isConnected || toast.classList.contains("leaving")) return;
+    toast.classList.add("leaving");
+    toast.addEventListener("animationend", () => toast.remove(), { once: true });
+  };
+
+  toast.querySelector(".toast-close").addEventListener("click", closeToast);
+  refs.toastRegion.appendChild(toast);
+  window.setTimeout(closeToast, type === "error" ? 5200 : 3400);
+}
+
+function showError(message) {
+  showNotification(message, "error", "Atencion");
+}
+
+function confirmAction(message) {
+  if (!refs.confirmOverlay) return Promise.resolve(false);
+  refs.confirmMessage.textContent = message;
+  refs.confirmOverlay.hidden = false;
+  refs.confirmAcceptBtn.focus();
+
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function closeConfirmDialog(result) {
+  if (!confirmResolver) return;
+  refs.confirmOverlay.hidden = true;
+  confirmResolver(result);
+  confirmResolver = null;
+}
+
+function initSidebarState() {
+  const savedValue = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+  const shouldOpen = savedValue === null ? window.innerWidth > 1080 : savedValue === "true";
+  setSidebarOpen(shouldOpen, false);
+}
+
+function toggleSidebar() {
+  setSidebarOpen(!document.body.classList.contains("sidebar-open"));
+}
+
+function setSidebarOpen(isOpen, shouldSave = true) {
+  document.body.classList.toggle("sidebar-open", isOpen);
+  document.body.classList.toggle("sidebar-collapsed", !isOpen);
+  refs.sidebarToggle.setAttribute("aria-expanded", String(isOpen));
+  refs.sidebarToggle.setAttribute("aria-label", isOpen ? "Cerrar menu" : "Abrir menu");
+
+  if (shouldSave) {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isOpen));
+  }
+}
+
+function closeSidebarOnSmallScreens() {
+  if (window.innerWidth <= 1080 && document.body.classList.contains("sidebar-open")) {
+    setSidebarOpen(false);
+  }
+}
+
+function closeSidebarWithEscape(event) {
+  if (event.key === "Escape" && document.body.classList.contains("sidebar-open")) {
+    setSidebarOpen(false);
+  }
+}
+
+function initAuthState() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    authSession = raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    authSession = null;
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  }
+}
+
+function setAuthSession(session) {
+  authSession = session;
+  if (session) {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  } else {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  }
+}
+
+function getCurrentUser() {
+  return authSession?.user || null;
+}
+
+function getAccessToken() {
+  return authSession?.access_token || "";
+}
+
+function seedDefaultDates() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!refs.saleForm.date.value) refs.saleForm.date.value = today;
+  if (!refs.orderForm.date.value) refs.orderForm.date.value = today;
+  if (!refs.dollarPurchaseForm.date.value) refs.dollarPurchaseForm.date.value = today;
+  if (!refs.dollarSpendForm.date.value) refs.dollarSpendForm.date.value = today;
+  if (!refs.subscriptionForm.date.value) refs.subscriptionForm.date.value = today;
+  if (!refs.withdrawalForm.date.value) refs.withdrawalForm.date.value = today;
+}
+
+function switchTab(targetId) {
+  refs.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === targetId));
+  refs.panels.forEach((panel) => panel.classList.toggle("active", panel.id === targetId));
+}
+
+async function loadState() {
+  try {
+    const config = getRemoteDatabaseConfig();
+    if (config.enabled && !isRemoteAuthReady()) {
+      hydrateState({});
+      return;
+    }
+
+    if (config.enabled && isRemoteAuthReady()) {
+      const remoteSaved = await readRemoteDatabaseState();
+      hydrateState(remoteSaved || {});
+      await writeLocalDatabaseState(getStateSnapshot());
+      if (!remoteSaved) {
+        await syncRemoteDatabaseState(getStateSnapshot());
+      }
+      return;
+    }
+
+    const saved = await readLocalDatabaseState();
+    if (saved) {
+      hydrateState(saved);
+      await syncRemoteDatabaseState(getStateSnapshot());
+      return;
+    }
+
+    await migrateLocalStorageState();
+  } catch (error) {
+    console.error("No se pudieron cargar los datos desde la base de datos.", error);
+    showError("No se pudo abrir la base de datos local. Revisa los permisos del navegador.");
+  }
+}
+
+function saveState() {
+  const snapshot = getStateSnapshot();
+  saveQueue = saveQueue
+    .catch(() => {})
+    .then(() => writeDatabaseState(snapshot))
+    .catch((error) => {
+      console.error("No se pudieron guardar los datos en la base de datos.", error);
+      showError("No se pudieron guardar los cambios en la base de datos local.");
+    });
+}
+
+async function readDatabaseState() {
+  const remoteSaved = await readRemoteDatabaseState();
+  return remoteSaved || readLocalDatabaseState();
+}
+
+async function writeDatabaseState(snapshot) {
+  await writeLocalDatabaseState(snapshot);
+  await syncRemoteDatabaseState(snapshot);
+}
+
+function openDatabase() {
+  if (databasePromise) return databasePromise;
+
+  databasePromise = new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+      reject(new Error("IndexedDB no esta disponible en este navegador."));
+      return;
+    }
+
+    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(STATE_STORE_NAME)) {
+        database.createObjectStore(STATE_STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+  return databasePromise;
+}
+
+async function readLocalDatabaseState() {
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STATE_STORE_NAME, "readonly");
+    const store = transaction.objectStore(STATE_STORE_NAME);
+    const request = store.get(getLocalStateRecordKey());
+
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writeLocalDatabaseState(snapshot) {
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STATE_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STATE_STORE_NAME);
+    store.put({ ...snapshot, updatedAt: new Date().toISOString() }, getLocalStateRecordKey());
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+function getLocalStateRecordKey() {
+  const config = getRemoteDatabaseConfig();
+  const userId = getCurrentUser()?.id;
+  return config.enabled && userId ? `user:${userId}` : STATE_RECORD_KEY;
+}
+
+function getRemoteDatabaseConfig() {
+  const config = window.PERFUMERIA_DATABASE || {};
+  const apiBaseUrl = String(config.apiBaseUrl || "").replace(/\/$/, "");
+  return {
+    enabled: Boolean(config.enabled && (apiBaseUrl || (config.supabaseUrl && config.anonKey))),
+    apiBaseUrl,
+    supabaseUrl: String(config.supabaseUrl || "").replace(/\/$/, ""),
+    anonKey: String(config.anonKey || ""),
+    tableName: config.tableName || DEFAULT_REMOTE_TABLE,
+  };
+}
+
+function validateRemoteConfig(config) {
+  if (!config.enabled) return;
+  if (isApiBackendEnabled(config)) return;
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(config.supabaseUrl)) {
+    throw new Error("La URL de Supabase no parece valida.");
+  }
+  if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(config.anonKey) && !/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(config.anonKey)) {
+    throw new Error("La anon/public key de Supabase no parece valida. Copiala de nuevo desde Project Settings > API.");
+  }
+}
+
+function isApiBackendEnabled(config = getRemoteDatabaseConfig()) {
+  return Boolean(config.enabled && config.apiBaseUrl);
+}
+
+function isRemoteAuthReady() {
+  const config = getRemoteDatabaseConfig();
+  return Boolean(config.enabled && getAccessToken() && getCurrentUser()?.id);
+}
+
+function getRemoteTableName(tableName) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) {
+    throw new Error("El nombre de la tabla remota no es valido.");
+  }
+  return tableName;
+}
+
+function getRemoteHeaders(config, extraHeaders = {}) {
+  const accessToken = getAccessToken();
+  return {
+    apikey: config.anonKey,
+    Authorization: `Bearer ${accessToken || config.anonKey}`,
+    ...extraHeaders,
+  };
+}
+
+async function readRemoteDatabaseState() {
+  const config = getRemoteDatabaseConfig();
+  if (!config.enabled || !isRemoteAuthReady()) return null;
+  if (isApiBackendEnabled(config)) return readApiDatabaseState(config);
+
+  try {
+    const tableName = getRemoteTableName(config.tableName);
+    const userId = getCurrentUser().id;
+    const response = await fetch(
+      `${config.supabaseUrl}/rest/v1/${tableName}?id=eq.${encodeURIComponent(userId)}&select=data&limit=1`,
+      { headers: getRemoteHeaders(config) }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Supabase respondio ${response.status}`);
+    }
+
+    const rows = await response.json();
+    return rows?.[0]?.data || null;
+  } catch (error) {
+    warnRemoteDatabase(error);
+    return null;
+  }
+}
+
+async function syncRemoteDatabaseState(snapshot) {
+  const config = getRemoteDatabaseConfig();
+  if (!config.enabled || !isRemoteAuthReady()) return;
+  if (isApiBackendEnabled(config)) {
+    await syncApiDatabaseState(config, snapshot);
+    return;
+  }
+
+  try {
+    const tableName = getRemoteTableName(config.tableName);
+    const user = getCurrentUser();
+    const response = await fetch(`${config.supabaseUrl}/rest/v1/${tableName}?on_conflict=id`, {
+      method: "POST",
+      headers: getRemoteHeaders(config, {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      }),
+      body: JSON.stringify({
+        id: user.id,
+        user_id: user.id,
+        data: snapshot,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase respondio ${response.status}`);
+    }
+  } catch (error) {
+    warnRemoteDatabase(error);
+  }
+}
+
+async function readApiDatabaseState(config) {
+  try {
+    const response = await fetch(`${config.apiBaseUrl}/state`, {
+      headers: {
+        Authorization: `Bearer ${getAccessToken()}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response));
+    }
+
+    const payload = await response.json();
+    return payload.data || null;
+  } catch (error) {
+    warnRemoteDatabase(error);
+    return null;
+  }
+}
+
+async function syncApiDatabaseState(config, snapshot) {
+  try {
+    const response = await fetch(`${config.apiBaseUrl}/state`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ data: snapshot }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response));
+    }
+  } catch (error) {
+    warnRemoteDatabase(error);
+  }
+}
+
+function warnRemoteDatabase(error) {
+  console.error("No se pudo sincronizar con la base de datos publica.", error);
+  if (remoteDatabaseWarningShown) return;
+  remoteDatabaseWarningShown = true;
+  showNotification("La base publica no esta disponible ahora. La app sigue funcionando con la copia local.", "warning", "Conexion interrumpida");
+}
+
+async function migrateLocalStorageState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+
+  try {
+    const saved = JSON.parse(raw);
+    hydrateState(saved);
+    await writeLocalDatabaseState(getStateSnapshot());
+    await syncRemoteDatabaseState(getStateSnapshot());
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (error) {
+    console.error("No se pudieron migrar los datos anteriores.", error);
+  }
+}
+
+function hydrateState(saved) {
+  const normalized = normalizeState(saved);
+  state.perfumes = normalized.perfumes;
+  state.sales = normalized.sales;
+  state.expenses = normalized.expenses;
+  state.subscriptions = normalized.subscriptions;
+  state.withdrawals = normalized.withdrawals;
+  state.dollarPurchases = normalized.dollarPurchases;
+  state.dollarSpends = normalized.dollarSpends;
+  state.history = normalized.history;
+  priceFormulaState.baseExtra = normalized.priceFormula.baseExtra;
+  priceFormulaState.markupMultiplier = normalized.priceFormula.markupMultiplier;
+  priceFormulaState.markdownAmount = normalized.priceFormula.markdownAmount;
+  priceFormulaState.promoDiscountPercent = normalized.priceFormula.promoDiscountPercent;
+  state.draftSaleItems = [];
+}
+
+function normalizeState(saved = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    perfumes: Array.isArray(saved.perfumes)
+      ? saved.perfumes.map((item) => ({
+          id: item.id || crypto.randomUUID(),
+          name: item.name || "Sin nombre",
+          brand: item.brand || "",
+          ml: Number(item.ml) || 0,
+          cost: Number(item.cost) || 0,
+          price: Number(item.price) || Number(item.basePrice) || 0,
+          stock: Number(item.stock) || 0,
+          tiendanubeProductId: item.tiendanubeProductId || "",
+          tiendanubeVariantId: item.tiendanubeVariantId || "",
+          tiendanubeSku: item.tiendanubeSku || "",
+          tiendanubeSyncedAt: item.tiendanubeSyncedAt || "",
+          createdAt: item.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    sales: Array.isArray(saved.sales)
+      ? saved.sales.map((sale) => ({
+          id: sale.id || crypto.randomUUID(),
+          customer: sale.customer || "",
+          date: sale.date || today,
+          paymentMethod: sale.paymentMethod || "Transferencia",
+          channel: sale.channel || "",
+          items: Array.isArray(sale.items)
+            ? sale.items.map((item) => ({
+                id: item.id || crypto.randomUUID(),
+                perfumeId: item.perfumeId || "",
+                name: item.name || "Sin nombre",
+                qty: Number(item.qty) || 1,
+                basePrice: Number(item.basePrice) || Number(item.unitPrice) || 0,
+                paymentMethod: item.paymentMethod || sale.paymentMethod || "Transferencia",
+                unitNet: Number(item.unitNet) || Number(item.unitPrice) || 0,
+              }))
+            : [],
+          grossTotal: Number(sale.grossTotal) || Number(sale.total) || 0,
+          total: Number(sale.total) || 0,
+          createdAt: sale.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    expenses: normalizeExpenses(saved),
+    subscriptions: Array.isArray(saved.subscriptions) ? saved.subscriptions : [],
+    withdrawals: Array.isArray(saved.withdrawals) ? saved.withdrawals : [],
+    dollarPurchases: Array.isArray(saved.dollarPurchases) ? saved.dollarPurchases : [],
+    dollarSpends: Array.isArray(saved.dollarSpends) ? saved.dollarSpends : [],
+    history: normalizeHistory(saved.history),
+    priceFormula: normalizePriceFormula(saved.priceFormula),
+  };
+}
+
+function normalizeExpenses(saved = {}) {
+  if (Array.isArray(saved.expenses)) return saved.expenses;
+  if (!Array.isArray(saved.orders)) return [];
+
+  return saved.orders.map((item) => ({
+    id: item.id || crypto.randomUUID(),
+    supplier: item.supplier || "Importado",
+    category: "Encargo",
+    date: item.date || new Date().toISOString().slice(0, 10),
+    amount: Number(item.total) || 0,
+    notes: item.items?.map((entry) => `${entry.name} x${entry.qty}`).join(", ") || "",
+    createdAt: item.createdAt || new Date().toISOString(),
+  }));
+}
+
+function normalizeHistory(history = {}) {
+  return {
+    salesAmount: Number(history.salesAmount) || 0,
+    soldUnits: Number(history.soldUnits) || 0,
+    expensesAmount: Number(history.expensesAmount) || 0,
+    initialInvestment: Number(history.initialInvestment) || 0,
+    boughtUnits: Number(history.boughtUnits) || 0,
+    subscriptionsAmount: Number(history.subscriptionsAmount) || 0,
+    withdrawalsAmount: Number(history.withdrawalsAmount) || 0,
+    dollarPurchasePesos: Number(history.dollarPurchasePesos) || 0,
+    dollarBoughtUnits: Number(history.dollarBoughtUnits) || 0,
+    dollarSpentUnits: Number(history.dollarSpentUnits) || 0,
+  };
+}
+
+function normalizePriceFormula(priceFormula = {}) {
+  return {
+    baseExtra: numberOrDefault(priceFormula.baseExtra, 5000),
+    markupMultiplier: numberOrDefault(priceFormula.markupMultiplier, 1.5),
+    markdownAmount: numberOrDefault(priceFormula.markdownAmount, 2000),
+    promoDiscountPercent: numberOrDefault(priceFormula.promoDiscountPercent, 20),
+  };
+}
+
+function numberOrDefault(value, defaultValue) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : defaultValue;
+}
+
+function getStateSnapshot() {
+  return {
+    perfumes: state.perfumes,
+    sales: state.sales,
+    expenses: state.expenses,
+    subscriptions: state.subscriptions,
+    withdrawals: state.withdrawals,
+    dollarPurchases: state.dollarPurchases,
+    dollarSpends: state.dollarSpends,
+    history: state.history,
+    priceFormula: { ...priceFormulaState },
+  };
+}
+
+function renderAll() {
+  renderAuthGate();
+  syncBrandSuggestions();
+  renderHistoryForm();
+  syncBrandFilterOptions();
+  populateProductSelects();
+  renderProductsTable();
+  renderSalesTable();
+  renderExpensesTable();
+  renderDollarTable();
+  renderBankMovementsTable();
+  renderSummaryDashboard();
+  renderAnalysis();
+  renderPriceCalculator();
+  renderSaleDraft();
+  renderExpenseDraft();
+  syncDollarPurchaseAmount();
+}
+
+function renderHistoryForm() {
+  refs.historyForm.historicalSalesAmount.value = state.history.salesAmount || 0;
+  refs.historyForm.historicalSoldUnits.value = state.history.soldUnits || 0;
+  refs.historyForm.historicalExpensesAmount.value = state.history.expensesAmount || 0;
+  refs.historyForm.historicalInitialInvestment.value = state.history.initialInvestment || 0;
+  refs.historyForm.historicalBoughtUnits.value = state.history.boughtUnits || 0;
+  refs.historyForm.historicalSubscriptionsAmount.value = state.history.subscriptionsAmount || 0;
+  refs.historyForm.historicalWithdrawalsAmount.value = state.history.withdrawalsAmount || 0;
+  refs.historyForm.historicalDollarPurchasePesos.value = state.history.dollarPurchasePesos || 0;
+  refs.historyForm.historicalDollarBoughtUnits.value = state.history.dollarBoughtUnits || 0;
+  refs.historyForm.historicalDollarSpentUnits.value = state.history.dollarSpentUnits || 0;
+}
+
+function handlePerfumeSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.perfumeForm);
+  const perfumeId = formData.get("perfumeId");
+  const isEditingPerfume = Boolean(perfumeId);
+  const perfume = {
+    id: perfumeId || crypto.randomUUID(),
+    name: formData.get("name").trim(),
+    brand: formData.get("brand").trim(),
+    ml: Number(formData.get("ml")) || 0,
+    cost: Number(formData.get("cost")) || 0,
+    price: Number(formData.get("price")) || 0,
+    stock: Number(formData.get("stock")) || 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!perfume.name) {
+    showError("Escribe el nombre del perfume.");
+    return;
+  }
+
+  if (perfumeId) {
+    const index = state.perfumes.findIndex((item) => item.id === perfumeId);
+    if (index >= 0) {
+      state.perfumes[index] = {
+        ...state.perfumes[index],
+        ...perfume,
+      };
+    }
+  } else {
+    state.perfumes.push(perfume);
+  }
+
+  resetPerfumeForm();
+  saveState();
+  renderAll();
+  showNotification(isEditingPerfume ? "Perfume actualizado correctamente." : "Perfume agregado correctamente.");
+}
+
+async function callNetlifyFunction(name, payload = {}) {
+  const response = await fetch(`${TIENDANUBE_FUNCTION_BASE}/${name}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getAccessToken()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (error) {
+    data = {};
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || `La funcion ${name} respondio ${response.status}`);
+  }
+
+  return data;
+}
+
+async function syncTiendanubeProducts() {
+  if (!getAccessToken()) {
+    showError("Inicia sesion antes de sincronizar Tiendanube.");
+    return;
+  }
+
+  try {
+    refs.syncTiendanubeBtn.disabled = true;
+    refs.syncTiendanubeBtn.textContent = "Sincronizando...";
+    const result = await callNetlifyFunction("tiendanube-sync-products");
+    const products = Array.isArray(result.products) ? result.products : [];
+    let created = 0;
+    let updated = 0;
+
+    products.forEach((product) => {
+      const existingIndex = findPerfumeIndexByTiendanubeProduct(product);
+      const normalized = {
+        id: existingIndex >= 0 ? state.perfumes[existingIndex].id : crypto.randomUUID(),
+        name: product.name || "Sin nombre",
+        brand: product.brand || "",
+        ml: Number(product.ml) || 0,
+        cost: existingIndex >= 0 ? state.perfumes[existingIndex].cost || 0 : 0,
+        price: Number(product.price) || 0,
+        stock: Number(product.stock) || 0,
+        tiendanubeProductId: product.tiendanubeProductId || "",
+        tiendanubeVariantId: product.tiendanubeVariantId || "",
+        tiendanubeSku: product.tiendanubeSku || "",
+        tiendanubeSyncedAt: new Date().toISOString(),
+        createdAt: existingIndex >= 0 ? state.perfumes[existingIndex].createdAt : new Date().toISOString(),
+      };
+
+      if (existingIndex >= 0) {
+        state.perfumes[existingIndex] = {
+          ...state.perfumes[existingIndex],
+          ...normalized,
+        };
+        updated += 1;
+      } else {
+        state.perfumes.push(normalized);
+        created += 1;
+      }
+    });
+
+    saveState();
+    renderAll();
+    showNotification(`Tiendanube sincronizado: ${created} nuevos, ${updated} actualizados.`);
+  } catch (error) {
+    console.error("No se pudo sincronizar Tiendanube.", error);
+    showError(`No se pudo sincronizar Tiendanube. ${error.message}`);
+  } finally {
+    refs.syncTiendanubeBtn.disabled = false;
+    refs.syncTiendanubeBtn.textContent = "Sincronizar productos";
+  }
+}
+
+function findPerfumeIndexByTiendanubeProduct(product) {
+  const productId = String(product.tiendanubeProductId || "");
+  const variantId = String(product.tiendanubeVariantId || "");
+  const sku = String(product.tiendanubeSku || "").trim().toLowerCase();
+  const name = String(product.name || "").trim().toLowerCase();
+
+  return state.perfumes.findIndex((perfume) => {
+    const sameVariant = variantId && String(perfume.tiendanubeVariantId || "") === variantId;
+    const sameProduct = productId && String(perfume.tiendanubeProductId || "") === productId;
+    const sameSku = sku && String(perfume.tiendanubeSku || "").trim().toLowerCase() === sku;
+    const sameName = name && String(perfume.name || "").trim().toLowerCase() === name;
+    return sameVariant || sameProduct || sameSku || sameName;
+  });
+}
+
+async function syncTiendanubeStockForSale(sale) {
+  if (!getAccessToken()) return;
+
+  try {
+    await callNetlifyFunction("tiendanube-update-stock", {
+      saleId: sale.id,
+      items: sale.items,
+    });
+    showNotification("Stock sincronizado con Tiendanube.");
+  } catch (error) {
+    console.error("No se pudo sincronizar stock con Tiendanube.", error);
+    showNotification(`La venta se guardo, pero no se pudo sincronizar Tiendanube. ${error.message}`, "warning", "Tiendanube pendiente");
+  }
+}
+
+function resetPerfumeForm() {
+  refs.perfumeForm.reset();
+  refs.perfumeForm.perfumeId.value = "";
+  refs.perfumeForm.ml.value = 100;
+  refs.perfumeForm.cost.value = 0;
+  refs.perfumeForm.stock.value = 0;
+  refs.savePerfumeBtn.textContent = "Guardar perfume";
+  refs.cancelPerfumeEditBtn.hidden = true;
+}
+
+function startPerfumeEdit(perfumeId) {
+  const perfume = state.perfumes.find((item) => item.id === perfumeId);
+  if (!perfume) return;
+
+  refs.perfumeForm.perfumeId.value = perfume.id;
+  refs.perfumeForm.name.value = perfume.name || "";
+  refs.perfumeForm.brand.value = perfume.brand || "";
+  refs.perfumeForm.ml.value = perfume.ml || 0;
+  refs.perfumeForm.cost.value = perfume.cost || 0;
+  refs.perfumeForm.price.value = perfume.price || 0;
+  refs.perfumeForm.stock.value = perfume.stock || 0;
+  refs.savePerfumeBtn.textContent = "Guardar cambios";
+  refs.cancelPerfumeEditBtn.hidden = false;
+  refs.perfumeForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function syncBrandFilterOptions() {
+  const currentValue = refs.brandFilter.value;
+  const brands = Array.from(
+    new Set(
+      state.perfumes
+        .map((item) => (item.brand || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "es"));
+
+  refs.brandFilter.innerHTML = [
+    `<option value="">Todas las marcas</option>`,
+    ...brands.map((brand) => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`),
+  ].join("");
+
+  refs.brandFilter.value = brands.includes(currentValue) ? currentValue : "";
+}
+
+function syncBrandSuggestions() {
+  const brands = Array.from(
+    new Set(
+      state.perfumes
+        .map((item) => (item.brand || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "es"));
+
+  refs.brandSuggestions.innerHTML = brands
+    .map((brand) => `<option value="${escapeHtml(brand)}"></option>`)
+    .join("");
+}
+
+function handlePriceFormulaInput() {
+  const formData = new FormData(refs.priceFormulaForm);
+  priceFormulaState.baseExtra = Number(formData.get("baseExtra")) || 0;
+  priceFormulaState.markupMultiplier = Number(formData.get("markupMultiplier")) || 0;
+  priceFormulaState.markdownAmount = Number(formData.get("markdownAmount")) || 0;
+  priceFormulaState.promoDiscountPercent = Number(formData.get("promoDiscountPercent")) || 0;
+  saveState();
+  renderPriceCalculator();
+}
+
+function renderAuthGate() {
+  const config = getRemoteDatabaseConfig();
+  const user = getCurrentUser();
+
+  if (!config.enabled) {
+    refs.authStatus.innerHTML = `
+      <strong>Base publica desactivada</strong>
+      <span>Configura Supabase en database-config.js para activar el acceso con usuario.</span>
+    `;
+    refs.authScreen.hidden = true;
+    refs.appShell.hidden = false;
+    refs.authLogoutBtn.hidden = true;
+    return;
+  }
+
+  if (!user) {
+    const storageLabel = isApiBackendEnabled(config) ? "servidor dinamico" : "base publica";
+    refs.authStatus.innerHTML = `
+      <strong>Necesitas iniciar sesion</strong>
+      <span>Crea una cuenta o entra con tu email para abrir el panel con ${storageLabel}.</span>
+    `;
+    refs.authScreen.hidden = false;
+    refs.appShell.hidden = true;
+    refs.authLogoutBtn.hidden = true;
+    return;
+  }
+
+  refs.authStatus.innerHTML = `
+    <strong>Sesion iniciada</strong>
+    <span>${escapeHtml(user.email || "Usuario conectado")}</span>
+  `;
+  refs.authScreen.hidden = true;
+  refs.appShell.hidden = false;
+  refs.authLogoutBtn.hidden = false;
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const config = getRemoteDatabaseConfig();
+  if (!config.enabled) {
+    showError("Primero activa Supabase en database-config.js.");
+    return;
+  }
+
+  const formData = new FormData(refs.authLoginForm);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  try {
+    validateRemoteConfig(config);
+    const session = await authenticateWithPassword(config, email, password);
+    setAuthSession(session);
+    refs.authLoginForm.reset();
+    await loadState();
+    renderAll();
+    showNotification("Sesion iniciada correctamente.");
+  } catch (error) {
+    console.error("No se pudo iniciar sesion.", error);
+    showError(`No se pudo iniciar sesion. ${error.message}`);
+  }
+}
+
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+  const config = getRemoteDatabaseConfig();
+  if (!config.enabled) {
+    showError("Primero activa Supabase en database-config.js.");
+    return;
+  }
+
+  const formData = new FormData(refs.authRegisterForm);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  try {
+    validateRemoteConfig(config);
+    const session = await registerWithPassword(config, email, password);
+    refs.authRegisterForm.reset();
+
+    if (session?.access_token) {
+      setAuthSession(session);
+      hydrateState({});
+      await writeDatabaseState(getStateSnapshot());
+      renderAll();
+      showNotification("Cuenta creada y sesion iniciada.");
+      return;
+    }
+
+    showNotification("Cuenta creada. Revisa tu email si Supabase pide confirmar la cuenta antes de iniciar sesion.", "warning", "Cuenta creada");
+  } catch (error) {
+    console.error("No se pudo crear la cuenta.", error);
+    showError(`No se pudo crear la cuenta. ${error.message}`);
+  }
+}
+
+async function handleLogout() {
+  const confirmed = await confirmAction("Vas a cerrar la sesion actual. Quieres seguir?");
+  if (!confirmed) return;
+
+  const config = getRemoteDatabaseConfig();
+  if (config.enabled && getAccessToken()) {
+    try {
+      const logoutUrl = isApiBackendEnabled(config)
+        ? `${config.apiBaseUrl}/auth/logout`
+        : `${config.supabaseUrl}/auth/v1/logout`;
+      await fetch(logoutUrl, {
+        method: "POST",
+        headers: isApiBackendEnabled(config)
+          ? { Authorization: `Bearer ${getAccessToken()}` }
+          : getRemoteHeaders(config),
+      });
+    } catch (error) {
+      console.error("No se pudo cerrar la sesion remota.", error);
+    }
+  }
+
+  setAuthSession(null);
+  hydrateState({});
+  renderAll();
+  showNotification("Sesion cerrada correctamente.");
+}
+
+async function authenticateWithPassword(config, email, password) {
+  if (isApiBackendEnabled(config)) {
+    return authenticateWithApiPassword(config, email, password);
+  }
+
+  const response = await fetch(`${config.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getSupabaseErrorMessage(response));
+  }
+
+  return response.json();
+}
+
+async function registerWithPassword(config, email, password) {
+  if (isApiBackendEnabled(config)) {
+    return registerWithApiPassword(config, email, password);
+  }
+
+  const response = await fetch(`${config.supabaseUrl}/auth/v1/signup`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getSupabaseErrorMessage(response));
+  }
+
+  return response.json();
+}
+
+async function authenticateWithApiPassword(config, email, password) {
+  const response = await fetch(`${config.apiBaseUrl}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  return response.json();
+}
+
+async function registerWithApiPassword(config, email, password) {
+  const response = await fetch(`${config.apiBaseUrl}/auth/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response));
+  }
+
+  return response.json();
+}
+
+async function getSupabaseErrorMessage(response) {
+  try {
+    const details = await response.json();
+    return details.msg || details.message || details.error_description || details.error || `Supabase respondio ${response.status}`;
+  } catch (error) {
+    return `Supabase respondio ${response.status}`;
+  }
+}
+
+async function getApiErrorMessage(response) {
+  try {
+    const details = await response.json();
+    return details.error || details.message || `Servidor respondio ${response.status}`;
+  } catch (error) {
+    return `Servidor respondio ${response.status}`;
+  }
+}
+
+function handleHistorySubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.historyForm);
+  state.history = {
+    salesAmount: Number(formData.get("historicalSalesAmount")) || 0,
+    soldUnits: Number(formData.get("historicalSoldUnits")) || 0,
+    expensesAmount: Number(formData.get("historicalExpensesAmount")) || 0,
+    initialInvestment: Number(formData.get("historicalInitialInvestment")) || 0,
+    boughtUnits: Number(formData.get("historicalBoughtUnits")) || 0,
+    subscriptionsAmount: Number(formData.get("historicalSubscriptionsAmount")) || 0,
+    withdrawalsAmount: Number(formData.get("historicalWithdrawalsAmount")) || 0,
+    dollarPurchasePesos: Number(formData.get("historicalDollarPurchasePesos")) || 0,
+    dollarBoughtUnits: Number(formData.get("historicalDollarBoughtUnits")) || 0,
+    dollarSpentUnits: Number(formData.get("historicalDollarSpentUnits")) || 0,
+  };
+  saveState();
+  renderAll();
+  showNotification("Acumulado inicial guardado correctamente.");
+}
+
+function populateProductSelects() {
+  const perfumeOptions = state.perfumes
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "es"))
+    .map((perfume) => `<option value="${perfume.id}">${escapeHtml(perfume.name)} (${perfume.stock} en stock)</option>`)
+    .join("");
+
+  refs.saleProductSelect.innerHTML = `<option value="">Selecciona un perfume</option>${perfumeOptions}`;
+  syncSaleUnitPrice();
+}
+
+function getPaymentNet(price, methodKey) {
+  const paymentMethod = PAYMENT_METHODS[methodKey] || PAYMENT_METHODS.Transferencia;
+  return roundCurrency(paymentMethod.factor(Number(price) || 0));
+}
+
+function syncSaleUnitPrice() {
+  const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
+  if (!perfume) {
+    refs.saleUnitPriceInput.value = "";
+    return;
+  }
+
+  refs.saleUnitPriceInput.value = getPaymentNet(perfume.price, refs.saleForm.paymentMethod.value);
+}
+
+function addSaleDraftItem() {
+  const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
+  const quantity = Number(refs.saleQtyInput.value) || 0;
+
+  if (!perfume) {
+    showError("Selecciona un perfume.");
+    return;
+  }
+
+  if (quantity <= 0) {
+    showError("La cantidad debe ser mayor a 0.");
+    return;
+  }
+
+  const reservedQty = getDraftSaleQtyForPerfume(perfume.id);
+  if (reservedQty + quantity > perfume.stock) {
+    showError(`No tienes stock suficiente. Stock actual: ${perfume.stock}`);
+    return;
+  }
+
+  state.draftSaleItems.push({
+    id: crypto.randomUUID(),
+    perfumeId: perfume.id,
+    name: perfume.name,
+    qty: quantity,
+    basePrice: perfume.price,
+    paymentMethod: refs.saleForm.paymentMethod.value,
+    unitNet: getPaymentNet(perfume.price, refs.saleForm.paymentMethod.value),
+    tiendanubeProductId: perfume.tiendanubeProductId || "",
+    tiendanubeVariantId: perfume.tiendanubeVariantId || "",
+    tiendanubeSku: perfume.tiendanubeSku || "",
+  });
+
+  refs.saleQtyInput.value = 1;
+  renderSaleDraft();
+  showNotification("Item agregado a la venta.");
+}
+
+function removeSaleDraftItem(itemId) {
+  state.draftSaleItems = state.draftSaleItems.filter((item) => item.id !== itemId);
+  renderSaleDraft();
+  showNotification("Item quitado de la venta.");
+}
+
+function getDraftSaleQtyForPerfume(perfumeId) {
+  return state.draftSaleItems
+    .filter((item) => item.perfumeId === perfumeId)
+    .reduce((sum, item) => sum + (item.qty || 0), 0);
+}
+
+function renderSaleDraft() {
+  refs.saleItemsList.innerHTML = "";
+
+  if (!state.draftSaleItems.length) {
+    refs.saleItemsList.appendChild(buildEmptyState("Agrega uno o mas productos a la venta."));
+  } else {
+    state.draftSaleItems.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "mini-item";
+      row.innerHTML = `
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <div>${item.qty} x ${formatCurrency(item.unitNet)} · ${escapeHtml(getPaymentLabel(item.paymentMethod))}</div>
+        </div>
+        <button type="button" class="text-button">Quitar</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => removeSaleDraftItem(item.id));
+      refs.saleItemsList.appendChild(row);
+    });
+  }
+
+  const gross = state.draftSaleItems.reduce((sum, item) => sum + item.basePrice * item.qty, 0);
+  const net = state.draftSaleItems.reduce((sum, item) => sum + item.unitNet * item.qty, 0);
+
+  refs.saleSummary.innerHTML = `
+    <div>Precio de lista: <strong>${formatCurrency(gross)}</strong></div>
+    <div>Total que realmente cobras: <strong>${formatCurrency(net)}</strong></div>
+  `;
+}
+
+function handleSaleSubmit(event) {
+  event.preventDefault();
+
+  if (!state.draftSaleItems.length) {
+    showError("Agrega al menos un item a la venta.");
+    return;
+  }
+
+  const groupedQty = state.draftSaleItems.reduce((acc, item) => {
+    acc[item.perfumeId] = (acc[item.perfumeId] || 0) + item.qty;
+    return acc;
+  }, {});
+
+  for (const [perfumeId, qty] of Object.entries(groupedQty)) {
+    const perfume = state.perfumes.find((item) => item.id === perfumeId);
+    if (!perfume || perfume.stock < qty) {
+      showError(`No tienes stock suficiente para ${perfume?.name || "ese perfume"}.`);
+      return;
+    }
+  }
+
+  const formData = new FormData(refs.saleForm);
+  const sale = {
+    id: crypto.randomUUID(),
+    customer: formData.get("customer").trim(),
+    date: formData.get("date"),
+    paymentMethod: formData.get("paymentMethod"),
+    channel: formData.get("channel").trim(),
+    items: state.draftSaleItems.map((item) => ({ ...item })),
+    grossTotal: state.draftSaleItems.reduce((sum, item) => sum + item.basePrice * item.qty, 0),
+    total: state.draftSaleItems.reduce((sum, item) => sum + item.unitNet * item.qty, 0),
+    createdAt: new Date().toISOString(),
+  };
+
+  sale.items.forEach((item) => {
+    const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
+    if (perfume) {
+      perfume.stock = Math.max(0, perfume.stock - item.qty);
+    }
+  });
+
+  state.sales.unshift(sale);
+  state.draftSaleItems = [];
+  refs.saleForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Venta registrada correctamente.");
+  syncTiendanubeStockForSale(sale);
+}
+
+async function deleteSale(saleId) {
+  const sale = state.sales.find((item) => item.id === saleId);
+  if (!sale) return;
+
+  const confirmed = await confirmAction("Esta venta se va a borrar y el stock se va a devolver. Quieres seguir?");
+  if (!confirmed) return;
+
+  sale.items.forEach((item) => {
+    const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
+    if (perfume) {
+      perfume.stock += item.qty;
+    }
+  });
+
+  state.sales = state.sales.filter((item) => item.id !== saleId);
+  saveState();
+  renderAll();
+  showNotification("Venta borrada correctamente.");
+}
+
+async function deletePerfume(perfumeId) {
+  const perfume = state.perfumes.find((item) => item.id === perfumeId);
+  if (!perfume) return;
+
+  const hasSales = state.sales.some((sale) =>
+    sale.items.some((item) => item.perfumeId === perfumeId)
+  );
+
+  if (hasSales) {
+    showError("No puedes borrar este perfume porque ya aparece en ventas guardadas.");
+    return;
+  }
+
+  const confirmed = await confirmAction("Este perfume se va a borrar del inventario. Quieres seguir?");
+  if (!confirmed) return;
+
+  state.perfumes = state.perfumes.filter((item) => item.id !== perfumeId);
+  state.draftSaleItems = state.draftSaleItems.filter((item) => item.perfumeId !== perfumeId);
+  if (refs.perfumeForm.perfumeId.value === perfumeId) {
+    resetPerfumeForm();
+  }
+  saveState();
+  renderAll();
+  showNotification("Perfume eliminado correctamente.");
+}
+
+function handleExpenseSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.orderForm);
+  const expense = {
+    id: crypto.randomUUID(),
+    supplier: formData.get("supplier").trim(),
+    category: formData.get("category"),
+    date: formData.get("date"),
+    amount: Number(formData.get("amount")) || 0,
+    notes: formData.get("notes").trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!expense.amount || expense.amount <= 0) {
+    showError("Escribe un gasto valido.");
+    return;
+  }
+
+  state.expenses.unshift(expense);
+  refs.orderForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Gasto registrado correctamente.");
+}
+
+async function deleteExpense(expenseId) {
+  const confirmed = await confirmAction("Este gasto se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.expenses = state.expenses.filter((item) => item.id !== expenseId);
+  saveState();
+  renderAll();
+  showNotification("Gasto eliminado correctamente.");
+}
+
+function renderExpenseDraft() {
+  refs.orderSummary.innerHTML = `
+    <div>Puedes cargar cualquier gasto o encargo manualmente.</div>
+    <div>Ese monto se suma a tu total gastado.</div>
+  `;
+}
+
+function syncDollarPurchaseAmount() {
+  const pesosAmount = Number(refs.dollarPurchaseForm.pesosAmount.value) || 0;
+  const dollarPrice = Number(refs.dollarPurchaseForm.dollarPrice.value) || 0;
+  refs.dollarPurchaseForm.dollarsAmount.value =
+    dollarPrice > 0 ? roundCurrency(pesosAmount / dollarPrice) : 0;
+}
+
+function handleDollarPurchaseSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.dollarPurchaseForm);
+  const pesosAmount = Number(formData.get("pesosAmount")) || 0;
+  const dollarPrice = Number(formData.get("dollarPrice")) || 0;
+  const dollarsAmount = dollarPrice > 0 ? roundCurrency(pesosAmount / dollarPrice) : 0;
+
+  if (pesosAmount <= 0 || dollarPrice <= 0 || dollarsAmount <= 0) {
+    showError("Carga una compra de dolares valida.");
+    return;
+  }
+
+  state.dollarPurchases.unshift({
+    id: crypto.randomUUID(),
+    date: formData.get("date"),
+    pesosAmount,
+    dollarPrice,
+    dollarsAmount,
+    notes: formData.get("notes").trim(),
+    createdAt: new Date().toISOString(),
+  });
+
+  refs.dollarPurchaseForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Compra de dolares registrada correctamente.");
+}
+
+function handleDollarSpendSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.dollarSpendForm);
+  const dollarsAmount = Number(formData.get("dollarsAmount")) || 0;
+  if (dollarsAmount <= 0) {
+    showError("Carga un gasto en dolares valido.");
+    return;
+  }
+
+  state.dollarSpends.unshift({
+    id: crypto.randomUUID(),
+    date: formData.get("date"),
+    dollarsAmount,
+    detail: formData.get("detail").trim(),
+    createdAt: new Date().toISOString(),
+  });
+
+  refs.dollarSpendForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Gasto en dolares registrado correctamente.");
+}
+
+function handleSubscriptionSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.subscriptionForm);
+  const amount = Number(formData.get("amount")) || 0;
+  if (amount <= 0) {
+    showError("Carga una suscripcion valida.");
+    return;
+  }
+
+  state.subscriptions.unshift({
+    id: crypto.randomUUID(),
+    date: formData.get("date"),
+    detail: formData.get("detail").trim(),
+    amount,
+    createdAt: new Date().toISOString(),
+  });
+
+  refs.subscriptionForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Suscripcion registrada correctamente.");
+}
+
+function handleWithdrawalSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.withdrawalForm);
+  const amount = Number(formData.get("amount")) || 0;
+  if (amount <= 0) {
+    showError("Carga un retiro valido.");
+    return;
+  }
+
+  state.withdrawals.unshift({
+    id: crypto.randomUUID(),
+    date: formData.get("date"),
+    detail: formData.get("detail").trim(),
+    amount,
+    createdAt: new Date().toISOString(),
+  });
+
+  refs.withdrawalForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Retiro registrado correctamente.");
+}
+
+function adjustStock(perfumeId, delta) {
+  const perfume = state.perfumes.find((item) => item.id === perfumeId);
+  if (!perfume) return;
+  perfume.stock = Math.max(0, perfume.stock + delta);
+  saveState();
+  renderAll();
+  showNotification("Stock actualizado correctamente.");
+}
+
+function renderDollarTable() {
+  refs.dollarTableBody.innerHTML = "";
+  const movements = [
+    ...state.dollarPurchases.map((item) => ({
+      date: item.date,
+      type: "Compra",
+      pesosAmount: item.pesosAmount,
+      dollarPrice: item.dollarPrice,
+      dollarsAmount: item.dollarsAmount,
+      detail: item.notes || "",
+    })),
+    ...state.dollarSpends.map((item) => ({
+      date: item.date,
+      type: "Gasto USD",
+      pesosAmount: "",
+      dollarPrice: "",
+      dollarsAmount: item.dollarsAmount,
+      detail: item.detail || "",
+    })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (!movements.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="6">Todavia no registraste movimientos en dolares.</td>`;
+    refs.dollarTableBody.appendChild(row);
+    return;
+  }
+
+  movements.forEach((movement) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${formatDate(movement.date)}</td>
+      <td>${escapeHtml(movement.type)}</td>
+      <td>${movement.pesosAmount === "" ? "-" : formatCurrency(movement.pesosAmount)}</td>
+      <td>${movement.dollarPrice === "" ? "-" : formatCurrency(movement.dollarPrice)}</td>
+      <td>${roundCurrency(movement.dollarsAmount)}</td>
+      <td>${escapeHtml(movement.detail || "-")}</td>
+    `;
+    refs.dollarTableBody.appendChild(row);
+  });
+}
+
+function renderBankMovementsTable() {
+  refs.bankMovementsTableBody.innerHTML = "";
+  const movements = [
+    ...state.subscriptions.map((item) => ({ ...item, type: "Suscripcion" })),
+    ...state.withdrawals.map((item) => ({ ...item, type: "Retiro" })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (!movements.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="4">Todavia no registraste suscripciones o retiros.</td>`;
+    refs.bankMovementsTableBody.appendChild(row);
+    return;
+  }
+
+  movements.forEach((movement) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${formatDate(movement.date)}</td>
+      <td>${escapeHtml(movement.type)}</td>
+      <td>${escapeHtml(movement.detail || "-")}</td>
+      <td>${formatCurrency(movement.amount)}</td>
+    `;
+    refs.bankMovementsTableBody.appendChild(row);
+  });
+}
+
+function renderProductsTable() {
+  const query = refs.productSearch.value.trim().toLowerCase();
+  const brandFilter = refs.brandFilter.value.trim().toLowerCase();
+  const sortMode = refs.productSort.value;
+  const filtered = state.perfumes
+    .filter((item) => `${item.name} ${item.brand}`.toLowerCase().includes(query))
+    .filter((item) => !brandFilter || (item.brand || "").trim().toLowerCase() === brandFilter)
+    .sort((a, b) => {
+      if (sortMode === "price-desc") return b.price - a.price;
+      if (sortMode === "price-asc") return a.price - b.price;
+      return a.name.localeCompare(b.name, "es");
+    });
+
+  refs.productsTableBody.innerHTML = "";
+
+  if (!filtered.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="12">No hay perfumes cargados todavia.</td>`;
+    refs.productsTableBody.appendChild(row);
+    return;
+  }
+
+  filtered.forEach((item) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td><strong>${escapeHtml(item.name)}</strong></td>
+      <td>${escapeHtml(item.brand || "-")}</td>
+      <td>${item.ml ? `${escapeHtml(String(item.ml))} ml` : "-"}</td>
+      <td>${formatCurrency(item.cost)}</td>
+      <td>${formatCurrency(item.price)}</td>
+      <td>${formatCurrency(getPaymentNet(item.price, "Transferencia"))}</td>
+      <td>${formatCurrency(getPaymentNet(item.price, "Tarjeta1"))}</td>
+      <td>${formatCurrency(getPaymentNet(item.price, "Tarjeta2"))}</td>
+      <td><span class="tag ${item.stock <= 1 ? "low" : "ok"}">${item.stock}</span></td>
+      <td><button type="button" class="text-button" data-edit-product="1">Editar</button></td>
+      <td>
+        <div class="inline-actions">
+          <button type="button" class="chip-button" data-stock-action="-1">-1</button>
+          <button type="button" class="chip-button" data-stock-action="1">+1</button>
+        </div>
+      </td>
+      <td><button type="button" class="danger-text-button" data-delete-product="1">Borrar</button></td>
+    `;
+
+    row.querySelectorAll("[data-stock-action]").forEach((button) => {
+      button.addEventListener("click", () => adjustStock(item.id, Number(button.dataset.stockAction)));
+    });
+    row.querySelector("[data-edit-product]").addEventListener("click", () => startPerfumeEdit(item.id));
+    row.querySelector("[data-delete-product]").addEventListener("click", () => deletePerfume(item.id));
+
+    refs.productsTableBody.appendChild(row);
+  });
+}
+
+function renderSalesTable() {
+  refs.salesTableBody.innerHTML = "";
+
+  if (!state.sales.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="6">Todavia no registraste ventas.</td>`;
+    refs.salesTableBody.appendChild(row);
+    return;
+  }
+
+  state.sales
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .forEach((sale) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${formatDate(sale.date)}</td>
+        <td>${escapeHtml(sale.customer || "-")}</td>
+        <td>${sale.items.map((item) => `${escapeHtml(item.name)} x${item.qty}`).join(", ")}</td>
+        <td>${escapeHtml(getPaymentLabel(sale.paymentMethod))}</td>
+        <td>${formatCurrency(sale.total)}</td>
+        <td><button type="button" class="danger-text-button">Borrar</button></td>
+      `;
+      row.querySelector("button").addEventListener("click", () => deleteSale(sale.id));
+      refs.salesTableBody.appendChild(row);
+    });
+}
+
+function renderExpensesTable() {
+  refs.ordersTableBody.innerHTML = "";
+
+  if (!state.expenses.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="5">Todavia no registraste gastos.</td>`;
+    refs.ordersTableBody.appendChild(row);
+    return;
+  }
+
+  state.expenses
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .forEach((expense) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${formatDate(expense.date)}</td>
+        <td>${escapeHtml(expense.supplier || "-")}</td>
+        <td>${escapeHtml(expense.category || "-")}</td>
+        <td>${formatCurrency(expense.amount)}</td>
+        <td><button type="button" class="danger-text-button">Borrar</button></td>
+      `;
+      row.querySelector("button").addEventListener("click", () => deleteExpense(expense.id));
+      refs.ordersTableBody.appendChild(row);
+    });
+}
+
+function renderDashboard() {
+  const summary = getDashboardSummary();
+
+  const stats = [
+    { label: "Pesos en banco", value: formatCurrency(summary.bankPesos) },
+    { label: "Dolares en banco", value: `${roundCurrency(summary.bankDollars)} USD` },
+    { label: "Total vendido", value: formatCurrency(summary.totalSold) },
+    { label: "Total gastado", value: formatCurrency(summary.totalSpent) },
+    { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
+    { label: "Suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Retiros", value: formatCurrency(summary.totalWithdrawals) },
+    { label: "Balance", value: formatCurrency(summary.balance) },
+    { label: "Cantidad total en stock", value: String(summary.totalStockUnits) },
+    { label: "Perfumes vendidos", value: String(summary.totalSoldUnits) },
+    { label: "Perfumes comprados", value: String(summary.totalBoughtUnits) },
+  ];
+
+  refs.statsGrid.innerHTML = stats
+    .map((stat) => `
+      <article class="stat-card">
+        <h4>${escapeHtml(stat.label)}</h4>
+        <strong>${escapeHtml(stat.value)}</strong>
+      </article>
+    `)
+    .join("");
+
+  const bankStats = [
+    { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
+    { label: "Total dolares comprados", value: `${roundCurrency(summary.totalDollarBoughtUnits)} USD` },
+    { label: "Total dolares gastados", value: `${roundCurrency(summary.totalDollarSpentUnits)} USD` },
+    { label: "Pesos usados en dolares", value: formatCurrency(summary.totalDollarPurchasePesos) },
+    { label: "Total suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Total retiros", value: formatCurrency(summary.totalWithdrawals) },
+    { label: "Banco neto", value: formatCurrency(summary.bankPesos) },
+  ];
+
+  refs.bankStatsGrid.innerHTML = bankStats
+    .map((stat) => `
+      <article class="stat-card">
+        <h4>${escapeHtml(stat.label)}</h4>
+        <strong>${escapeHtml(stat.value)}</strong>
+      </article>
+    `)
+    .join("");
+
+  renderStackList(
+    refs.topProducts,
+    getTopProducts().map((item) => ({
+      title: item.name,
+      subtitle: `${item.qty} vendidos · ${formatCurrency(item.revenue)}`,
+    })),
+    "Todavia no hay ventas cargadas."
+  );
+
+  renderStackList(
+    refs.lowStockList,
+    state.perfumes
+      .filter((item) => item.stock <= 1)
+      .sort((a, b) => a.stock - b.stock)
+      .slice(0, 6)
+      .map((item) => ({
+        title: item.name,
+        subtitle: `Stock actual: ${item.stock}`,
+      })),
+    "No hay perfumes con stock bajo."
+  );
+
+  renderStackList(
+    refs.recentSales,
+    state.sales.slice(0, 5).map((sale) => ({
+      title: `${formatDate(sale.date)} · ${sale.customer || "Sin cliente"}`,
+      subtitle: `${getPaymentLabel(sale.paymentMethod)} · ${formatCurrency(sale.total)}`,
+    })),
+    "Todavia no registraste ventas."
+  );
+
+  renderStackList(
+    refs.pendingOrders,
+    state.expenses.slice(0, 5).map((expense) => ({
+      title: `${formatDate(expense.date)} · ${expense.supplier || "Sin detalle"}`,
+      subtitle: `${expense.category || "Gasto"} · ${formatCurrency(expense.amount)}`,
+    })),
+    "Todavia no registraste gastos."
+  );
+}
+
+function renderStackList(container, items, emptyMessage) {
+  container.innerHTML = "";
+  if (!items.length) {
+    container.appendChild(buildEmptyState(emptyMessage));
+    return;
+  }
+
+  items.forEach((item) => {
+    const block = document.createElement("div");
+    block.className = "stack-item";
+    block.innerHTML = `
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <div>${escapeHtml(item.subtitle)}</div>
+      </div>
+    `;
+    container.appendChild(block);
+  });
+}
+
+function buildEmptyState(message) {
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  empty.textContent = message;
+  return empty;
+}
+
+function exportData() {
+  const blob = new Blob(
+    [JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      perfumes: state.perfumes,
+      sales: state.sales,
+      expenses: state.expenses,
+      subscriptions: state.subscriptions,
+      withdrawals: state.withdrawals,
+      dollarPurchases: state.dollarPurchases,
+      dollarSpends: state.dollarSpends,
+      history: state.history,
+      priceFormula: priceFormulaState,
+    }, null, 2)],
+    { type: "application/json" }
+  );
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `perfumeria-respaldo-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  showNotification("Respaldo JSON exportado correctamente.");
+}
+
+function exportExcelWorkbook() {
+  const workbook = {
+    sheets: [
+      {
+        name: "Resumen",
+        rows: [
+          ["Total vendido", getDashboardSummary().totalSold],
+          ["Total gastado", getDashboardSummary().totalSpent],
+          ["Inversion inicial", getDashboardSummary().initialInvestment],
+          ["Suscripciones", getDashboardSummary().totalSubscriptions],
+          ["Retiros", getDashboardSummary().totalWithdrawals],
+          ["Pesos usados en dolares", getDashboardSummary().totalDollarPurchasePesos],
+          ["Pesos en banco", getDashboardSummary().bankPesos],
+          ["Dolares comprados", getDashboardSummary().totalDollarBoughtUnits],
+          ["Dolares gastados", getDashboardSummary().totalDollarSpentUnits],
+          ["Dolares en banco", getDashboardSummary().bankDollars],
+          ["Balance", getDashboardSummary().balance],
+          ["Perfumes vendidos", getDashboardSummary().totalSoldUnits],
+          ["Perfumes comprados", getDashboardSummary().totalBoughtUnits],
+        ],
+      },
+      {
+        name: "Perfumes",
+        rows: [
+          ["Producto", "Marca", "ML", "Costo", "Precio lista", "Transferencia / efectivo", "Tarjeta 1 cuota", "Tarjeta 2 cuotas", "Stock"],
+          ...state.perfumes.map((item) => [
+            item.name,
+            item.brand || "",
+            item.ml || "",
+            item.cost || 0,
+            item.price,
+            getPaymentNet(item.price, "Transferencia"),
+            getPaymentNet(item.price, "Tarjeta1"),
+            getPaymentNet(item.price, "Tarjeta2"),
+            item.stock,
+          ]),
+        ],
+      },
+      {
+        name: "Ventas",
+        rows: [
+          ["Fecha", "Cliente", "Metodo", "Producto", "Cantidad", "Neto unitario", "Total"],
+          ...state.sales.flatMap((sale) =>
+            sale.items.map((item, index) => [
+              index === 0 ? sale.date : "",
+              index === 0 ? sale.customer : "",
+              index === 0 ? getPaymentLabel(sale.paymentMethod) : "",
+              item.name,
+              item.qty,
+              item.unitNet || item.basePrice || 0,
+              index === 0 ? sale.total : "",
+            ])
+          ),
+        ],
+      },
+      {
+        name: "Gastos",
+        rows: [
+          ["Fecha", "Detalle", "Categoria", "Monto", "Notas"],
+          ...state.expenses.map((item) => [item.date, item.supplier, item.category, item.amount, item.notes]),
+        ],
+      },
+      {
+        name: "Banco",
+        rows: [
+          ["Fecha", "Tipo", "Pesos", "Precio dolar", "Dolares", "Detalle"],
+          ...state.dollarPurchases.map((item) => [item.date, "Compra USD", item.pesosAmount, item.dollarPrice, item.dollarsAmount, item.notes]),
+          ...state.dollarSpends.map((item) => [item.date, "Gasto USD", "", "", item.dollarsAmount, item.detail]),
+          ...state.subscriptions.map((item) => [item.date, "Suscripcion", item.amount, "", "", item.detail]),
+          ...state.withdrawals.map((item) => [item.date, "Retiro", item.amount, "", "", item.detail]),
+        ],
+      },
+    ],
+  };
+
+  const xml = buildExcelXml(workbook);
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `perfumeria-export-${new Date().toISOString().slice(0, 10)}.xls`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  showNotification("Excel exportado correctamente.");
+}
+
+function importData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      hydrateState(data);
+      saveState();
+      renderAll();
+      showNotification("Respaldo importado correctamente.");
+    } catch (error) {
+      showError("El archivo no tiene un formato valido.");
+    } finally {
+      refs.importInput.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function clearAllData() {
+  const confirmed = await confirmAction("Esto borra todos los datos guardados para esta cuenta. Quieres seguir?");
+  if (!confirmed) return;
+  state.perfumes = [];
+  state.sales = [];
+  state.expenses = [];
+  state.subscriptions = [];
+  state.withdrawals = [];
+  state.dollarPurchases = [];
+  state.dollarSpends = [];
+  state.draftSaleItems = [];
+  state.history = normalizeHistory();
+  Object.assign(priceFormulaState, normalizePriceFormula());
+  saveState();
+  renderAll();
+  showNotification("Todos los datos se borraron correctamente.");
+}
+
+async function loadDemoData() {
+  const confirmed = await confirmAction("Se van a cargar datos de ejemplo. Si ya tenes datos, primero exportalos por las dudas.");
+  if (!confirmed) return;
+
+  state.perfumes = [
+    { id: crypto.randomUUID(), name: "Armaf Club de Nuit Iconic", brand: "Armaf", ml: 105, cost: 69770, price: 95000, stock: 4, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), name: "Lattafa Yara", brand: "Lattafa", ml: 100, cost: 41760, price: 72000, stock: 6, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), name: "Afnan 9PM", brand: "Afnan", ml: 100, cost: 52300, price: 68000, stock: 2, createdAt: new Date().toISOString() },
+  ];
+
+  state.sales = [
+    {
+      id: crypto.randomUUID(),
+      customer: "jessi barbato",
+      date: "2026-04-24",
+      paymentMethod: "Transferencia",
+      channel: "Instagram",
+      items: [
+        {
+          id: crypto.randomUUID(),
+          perfumeId: state.perfumes[0].id,
+          name: state.perfumes[0].name,
+          qty: 1,
+          basePrice: state.perfumes[0].price,
+          paymentMethod: "Transferencia",
+          unitNet: getPaymentNet(state.perfumes[0].price, "Transferencia"),
+        },
+      ],
+      grossTotal: state.perfumes[0].price,
+      total: getPaymentNet(state.perfumes[0].price, "Transferencia"),
+      createdAt: new Date().toISOString(),
+    },
+  ];
+
+  state.expenses = [
+    {
+      id: crypto.randomUUID(),
+      supplier: "Compra mayorista",
+      category: "Reposicion",
+      date: "2026-04-24",
+      amount: 180000,
+      notes: "Pedido semanal",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+
+  state.subscriptions = [
+    { id: crypto.randomUUID(), date: "2026-04-10", detail: "Canva Pro", amount: 15999, createdAt: new Date().toISOString() },
+  ];
+
+  state.withdrawals = [
+    { id: crypto.randomUUID(), date: "2026-04-12", detail: "Retiro Agus", amount: 100000, createdAt: new Date().toISOString() },
+  ];
+
+  state.dollarPurchases = [
+    { id: crypto.randomUUID(), date: "2026-04-11", pesosAmount: 300000, dollarPrice: 1243.31, dollarsAmount: 241.05, notes: "Compra banco", createdAt: new Date().toISOString() },
+  ];
+
+  state.dollarSpends = [
+    { id: crypto.randomUUID(), date: "2026-04-20", dollarsAmount: 125.11, detail: "Pago proveedor", createdAt: new Date().toISOString() },
+  ];
+
+  state.history = {
+    salesAmount: 12985672,
+    soldUnits: 184,
+    expensesAmount: 8406308,
+    initialInvestment: 3500000,
+    boughtUnits: 197,
+    subscriptionsAmount: 1055916.6,
+    withdrawalsAmount: 200000,
+    dollarPurchasePesos: 2800000,
+    dollarBoughtUnits: 2196.63,
+    dollarSpentUnits: 1238.57,
+  };
+
+  state.draftSaleItems = [];
+  Object.assign(priceFormulaState, normalizePriceFormula());
+  saveState();
+  renderAll();
+  showNotification("Datos de ejemplo cargados correctamente.");
+}
+
+function buildExcelXml(workbook) {
+  const sheetXml = workbook.sheets
+    .map((sheet) => {
+      const rowsXml = sheet.rows
+        .map((row) => {
+          const cellsXml = row
+            .map((cell) => {
+              const { type, value } = getSpreadsheetCell(cell);
+              return `<Cell><Data ss:Type="${type}">${escapeXml(value)}</Data></Cell>`;
+            })
+            .join("");
+          return `<Row>${cellsXml}</Row>`;
+        })
+        .join("");
+      return `<Worksheet ss:Name="${escapeXml(sheet.name)}"><Table>${rowsXml}</Table></Worksheet>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  ${sheetXml}
+</Workbook>`;
+}
+
+function getSpreadsheetCell(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { type: "Number", value: roundCurrency(value) };
+  }
+  return { type: "String", value: String(value ?? "") };
+}
+
+function renderSummaryDashboard() {
+  const summary = getDashboardSummary();
+
+  const stats = [
+    { label: "Pesos en banco", value: formatCurrency(summary.bankPesos) },
+    { label: "Dolares en banco", value: `${roundCurrency(summary.bankDollars)} USD` },
+    { label: "Total vendido", value: formatCurrency(summary.totalSold) },
+    { label: "Total gastado", value: formatCurrency(summary.totalSpent) },
+    { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
+    { label: "Suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Retiros", value: formatCurrency(summary.totalWithdrawals) },
+    { label: "Balance", value: formatCurrency(summary.balance) },
+    { label: "Cantidad total en stock", value: String(summary.totalStockUnits) },
+    { label: "Perfumes vendidos", value: String(summary.totalSoldUnits) },
+    { label: "Perfumes comprados", value: String(summary.totalBoughtUnits) },
+  ];
+
+  refs.statsGrid.innerHTML = stats
+    .map((stat) => `
+      <article class="stat-card">
+        <h4>${escapeHtml(stat.label)}</h4>
+        <strong>${escapeHtml(stat.value)}</strong>
+      </article>
+    `)
+    .join("");
+
+  const bankStats = [
+    { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
+    { label: "Total dolares comprados", value: `${roundCurrency(summary.totalDollarBoughtUnits)} USD` },
+    { label: "Total dolares gastados", value: `${roundCurrency(summary.totalDollarSpentUnits)} USD` },
+    { label: "Pesos usados en dolares", value: formatCurrency(summary.totalDollarPurchasePesos) },
+    { label: "Total suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Total retiros", value: formatCurrency(summary.totalWithdrawals) },
+    { label: "Banco neto", value: formatCurrency(summary.bankPesos) },
+  ];
+
+  refs.bankStatsGrid.innerHTML = bankStats
+    .map((stat) => `
+      <article class="stat-card">
+        <h4>${escapeHtml(stat.label)}</h4>
+        <strong>${escapeHtml(stat.value)}</strong>
+      </article>
+    `)
+    .join("");
+
+  renderStackList(
+    refs.lowStockList,
+    state.perfumes
+      .slice()
+      .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name, "es"))
+      .map((item) => ({
+        title: item.name,
+        subtitle: `${item.brand || "Sin marca"} · Stock actual: ${item.stock}`,
+      })),
+    "Todavia no cargaste perfumes."
+  );
+
+  renderStackList(
+    refs.recentSales,
+    getRecentSales(5).map((sale) => ({
+      title: `${formatDate(sale.date)} · ${sale.customer || "Sin cliente"}`,
+      subtitle: `${getPaymentLabel(sale.paymentMethod)} · ${formatCurrency(sale.total)}`,
+    })),
+    "Todavia no registraste ventas."
+  );
+
+  renderStackList(
+    refs.pendingOrders,
+    getRecentExpenses(5).map((expense) => ({
+      title: `${formatDate(expense.date)} · ${expense.supplier || "Sin detalle"}`,
+      subtitle: `${expense.category || "Gasto"} · ${formatCurrency(expense.amount)}`,
+    })),
+    "Todavia no registraste gastos."
+  );
+}
+
+function renderAnalysis() {
+  const summary = getDashboardSummary();
+  const averageTicket = state.sales.length
+    ? state.sales.reduce((sum, sale) => sum + (sale.total || 0), 0) / state.sales.length
+    : 0;
+
+  const analysisStats = [
+    { label: "Ventas cargadas", value: String(state.sales.length) },
+    { label: "Ticket promedio", value: formatCurrency(averageTicket) },
+    { label: "Productos distintos", value: String(state.perfumes.length) },
+    { label: "Cantidad total en stock", value: String(summary.totalStockUnits) },
+    { label: "Productos con stock 0", value: String(state.perfumes.filter((item) => item.stock === 0).length) },
+    { label: "Productos con stock 1", value: String(state.perfumes.filter((item) => item.stock === 1).length) },
+  ];
+
+  refs.analysisStatsGrid.innerHTML = analysisStats
+    .map((stat) => `
+      <article class="stat-card">
+        <h4>${escapeHtml(stat.label)}</h4>
+        <strong>${escapeHtml(stat.value)}</strong>
+      </article>
+    `)
+    .join("");
+
+  renderStackList(
+    refs.topProducts,
+    getTopProducts().map((item) => ({
+      title: item.name,
+      subtitle: `${item.qty} vendidos · ${formatCurrency(item.revenue)}`,
+    })),
+    "Todavia no hay ventas cargadas."
+  );
+
+  renderStackList(
+    refs.topRevenueProducts,
+    getTopRevenueProducts().map((item) => ({
+      title: item.name,
+      subtitle: `${formatCurrency(item.revenue)} cobrados · ${item.qty} unidades`,
+    })),
+    "Todavia no hay ventas cargadas."
+  );
+
+  renderStackList(
+    refs.paymentBreakdown,
+    getPaymentBreakdown().map((item) => ({
+      title: item.label,
+      subtitle: `${item.count} ventas · ${formatCurrency(item.total)}`,
+    })),
+    "Todavia no hay ventas cargadas."
+  );
+
+  renderStackList(
+    refs.channelBreakdown,
+    getChannelBreakdown().map((item) => ({
+      title: item.channel,
+      subtitle: `${item.count} ventas · ${formatCurrency(item.total)}`,
+    })),
+    "Todavia no hay canales cargados."
+  );
+}
+
+function renderPriceCalculator() {
+  refs.priceFormulaForm.baseExtra.value = priceFormulaState.baseExtra;
+  refs.priceFormulaForm.markupMultiplier.value = priceFormulaState.markupMultiplier;
+  refs.priceFormulaForm.markdownAmount.value = priceFormulaState.markdownAmount;
+  refs.priceFormulaForm.promoDiscountPercent.value = priceFormulaState.promoDiscountPercent;
+
+  refs.priceCalculatorTableBody.innerHTML = "";
+
+  if (!state.perfumes.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="11">Todavia no cargaste perfumes para calcular precios.</td>`;
+    refs.priceCalculatorTableBody.appendChild(row);
+    return;
+  }
+
+  state.perfumes
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "es"))
+    .forEach((perfume) => {
+      const suggestedPrice = calculateSuggestedPrice(perfume.cost);
+      const transferPrice = getPaymentNet(suggestedPrice, "Transferencia");
+      const markdownPrice = roundToThousands(transferPrice - priceFormulaState.markdownAmount);
+      const promoPrice = roundCurrency(suggestedPrice * (1 - priceFormulaState.promoDiscountPercent / 100));
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><strong>${escapeHtml(perfume.name)}</strong></td>
+        <td>${escapeHtml(perfume.brand || "-")}</td>
+        <td>${formatCurrency(perfume.cost)}</td>
+        <td>${formatCurrency(perfume.price)}</td>
+        <td>${formatCurrency(suggestedPrice)}</td>
+        <td>${formatCurrency(transferPrice)}</td>
+        <td>${formatCurrency(markdownPrice)}</td>
+        <td>${formatCurrency(promoPrice)}</td>
+        <td>${formatCurrency(suggestedPrice - (perfume.cost || 0))}</td>
+        <td>${formatCurrency(transferPrice - (perfume.cost || 0))}</td>
+        <td>${formatCurrency(promoPrice - (perfume.cost || 0))}</td>
+      `;
+      refs.priceCalculatorTableBody.appendChild(row);
+    });
+}
+
+function getTopProducts() {
+  const salesMap = {};
+  state.sales.forEach((sale) => {
+    sale.items.forEach((item) => {
+      if (!salesMap[item.name]) {
+        salesMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
+      }
+      salesMap[item.name].qty += item.qty;
+      salesMap[item.name].revenue += (item.unitNet || item.basePrice || 0) * item.qty;
+    });
+  });
+
+  return Object.values(salesMap)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 5);
+}
+
+function calculateSuggestedPrice(cost) {
+  return roundToThousands((Number(cost) + priceFormulaState.baseExtra) * priceFormulaState.markupMultiplier);
+}
+
+function roundToThousands(value) {
+  return Math.round((Number(value) || 0) / 1000) * 1000;
+}
+
+function getTopRevenueProducts() {
+  return getTopProducts()
+    .slice()
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+}
+
+function getPaymentBreakdown() {
+  const paymentMap = {};
+  state.sales.forEach((sale) => {
+    const key = sale.paymentMethod || "Transferencia";
+    if (!paymentMap[key]) {
+      paymentMap[key] = { label: getPaymentLabel(key), count: 0, total: 0 };
+    }
+    paymentMap[key].count += 1;
+    paymentMap[key].total += sale.total || 0;
+  });
+
+  return Object.values(paymentMap).sort((a, b) => b.total - a.total);
+}
+
+function getChannelBreakdown() {
+  const channelMap = {};
+  state.sales.forEach((sale) => {
+    const key = (sale.channel || "Sin canal").trim() || "Sin canal";
+    if (!channelMap[key]) {
+      channelMap[key] = { channel: key, count: 0, total: 0 };
+    }
+    channelMap[key].count += 1;
+    channelMap[key].total += sale.total || 0;
+  });
+
+  return Object.values(channelMap)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+}
+
+function getRecentSales(limit = 5) {
+  return state.sales
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, limit);
+}
+
+function getRecentExpenses(limit = 5) {
+  return state.expenses
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, limit);
+}
+
+function getDashboardSummary() {
+  const totalSold = state.sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
+  const totalSpent = state.expenses.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const initialInvestment = state.history.initialInvestment;
+  const totalSubscriptions = state.subscriptions.reduce((sum, item) => sum + (item.amount || 0), 0) + state.history.subscriptionsAmount;
+  const totalWithdrawals = state.withdrawals.reduce((sum, item) => sum + (item.amount || 0), 0) + state.history.withdrawalsAmount;
+  const totalDollarPurchasePesos = state.dollarPurchases.reduce((sum, item) => sum + (item.pesosAmount || 0), 0) + state.history.dollarPurchasePesos;
+  const totalDollarBoughtUnits = state.dollarPurchases.reduce((sum, item) => sum + (item.dollarsAmount || 0), 0) + state.history.dollarBoughtUnits;
+  const totalDollarSpentUnits = state.dollarSpends.reduce((sum, item) => sum + (item.dollarsAmount || 0), 0) + state.history.dollarSpentUnits;
+  const totalStockUnits = state.perfumes.reduce((sum, item) => sum + (item.stock || 0), 0);
+  const currentSoldUnits = state.sales.reduce(
+    (sum, sale) => sum + sale.items.reduce((itemSum, item) => itemSum + (item.qty || 0), 0),
+    0
+  );
+  const bankPesos = totalSold + state.history.salesAmount + initialInvestment - totalSpent - state.history.expensesAmount - totalSubscriptions - totalWithdrawals - totalDollarPurchasePesos;
+  const bankDollars = totalDollarBoughtUnits - totalDollarSpentUnits;
+
+  return {
+    totalSold: totalSold + state.history.salesAmount,
+    totalSpent: totalSpent + state.history.expensesAmount,
+    initialInvestment,
+    totalSubscriptions,
+    totalWithdrawals,
+    totalDollarPurchasePesos,
+    totalDollarBoughtUnits,
+    totalDollarSpentUnits,
+    totalStockUnits,
+    totalSoldUnits: currentSoldUnits + state.history.soldUnits,
+    totalBoughtUnits: state.history.boughtUnits,
+    bankPesos,
+    bankDollars,
+    balance: totalSold + state.history.salesAmount - totalSpent - state.history.expensesAmount,
+  };
+}
+
+function getPaymentLabel(methodKey) {
+  return PAYMENT_METHODS[methodKey]?.label || methodKey || "-";
+}
+
+function roundCurrency(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 2,
+  }).format(value || 0);
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("es-AR").format(date);
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
