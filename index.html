@@ -88,6 +88,7 @@
       </nav>
 
       <div class="sidebar-tools">
+        <div class="current-user-badge" id="currentUserBadge" hidden></div>
         <button type="button" class="logout-button" id="authLogoutBtn" hidden>Cerrar sesion</button>
       </div>
 
@@ -241,6 +242,33 @@
                 Marca
                 <input type="text" name="brand" list="brandSuggestions" placeholder="Escribe o elige una marca">
               </label>
+              <div class="full-width perfume-meta-row">
+                <label>
+                  Genero
+                  <select name="gender">
+                    <option value="">Sin clasificar</option>
+                    <option value="Femenino">Femenino</option>
+                    <option value="Masculino">Masculino</option>
+                    <option value="Unisex">Unisex</option>
+                  </select>
+                </label>
+                <label>
+                  Perfil
+                  <select name="scentProfile">
+                    <option value="">Sin clasificar</option>
+                    <option value="Dulce">Dulce</option>
+                    <option value="Floral">Floral</option>
+                    <option value="Frutal">Frutal</option>
+                    <option value="Citrico">Citrico</option>
+                    <option value="Fresco">Fresco</option>
+                    <option value="Amaderado">Amaderado</option>
+                    <option value="Especiado">Especiado</option>
+                    <option value="Oriental">Oriental</option>
+                    <option value="Cuero">Cuero</option>
+                  </select>
+                </label>
+                <a class="fragrantica-link" id="fragranticaSearchLink" href="https://www.fragrantica.com/" target="_blank" rel="noopener noreferrer">Buscar en Fragrantica</a>
+              </div>
               <div class="full-width perfume-second-row">
                 <label class="field-cost">
                   Costo
@@ -275,6 +303,12 @@
                 <select id="brandFilter" class="search-input">
                   <option value="">Todas las marcas</option>
                 </select>
+                <select id="genderFilter" class="search-input">
+                  <option value="">Todos los generos</option>
+                </select>
+                <select id="scentProfileFilter" class="search-input">
+                  <option value="">Todos los perfiles</option>
+                </select>
                 <select id="productSort" class="search-input">
                   <option value="name-asc">Nombre A-Z</option>
                   <option value="price-desc">Precio mayor a menor</option>
@@ -288,6 +322,8 @@
                   <tr>
                     <th>Producto</th>
                     <th>Marca</th>
+                    <th>Genero</th>
+                    <th>Perfil</th>
                     <th>ML</th>
                     <th>Costo</th>
                     <th>Precio lista</th>
@@ -295,9 +331,8 @@
                     <th>Tarjeta 1 cuota</th>
                     <th>Tarjeta 2 cuotas</th>
                     <th>Stock</th>
-                    <th>Editar</th>
                     <th>Ajustar</th>
-                    <th>Eliminar</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="productsTableBody"></tbody>

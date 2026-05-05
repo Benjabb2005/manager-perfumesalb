@@ -187,10 +187,8 @@ textarea {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  display: block;
   min-height: 100vh;
-  transition: grid-template-columns 220ms ease;
 }
 
 .auth-screen {
@@ -258,8 +256,9 @@ textarea {
   flex-direction: column;
   gap: 24px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  position: sticky;
-  top: 0;
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-width);
   height: 100vh;
   overflow-y: auto;
   transition: transform 220ms ease, opacity 180ms ease;
@@ -401,6 +400,28 @@ textarea {
   margin-top: auto;
 }
 
+.current-user-badge {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(232, 180, 142, 0.22);
+}
+
+.current-user-badge span {
+  color: rgba(248, 239, 226, 0.72);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.current-user-badge strong {
+  color: #fff7ec;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
 .nav-tab,
 .primary-button,
 .secondary-button,
@@ -431,10 +452,12 @@ textarea {
   display: grid;
   gap: 24px;
   min-width: 0;
-  transition: padding-left 220ms ease;
+  margin-left: var(--sidebar-width);
+  transition: margin-left 220ms ease, padding-left 220ms ease;
 }
 
 .sidebar-collapsed .main-content {
+  margin-left: 0;
   padding-left: 86px;
 }
 
@@ -658,12 +681,38 @@ textarea {
   align-items: end;
 }
 
+.perfume-meta-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(160px, 220px) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.fragrantica-link {
+  width: fit-content;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(47, 111, 93, 0.12);
+  color: var(--accent-2);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.fragrantica-link:hover {
+  background: rgba(47, 111, 93, 0.18);
+}
+
 .perfume-form-grid .field-cost input,
 .perfume-form-grid .field-price input,
 .perfume-form-grid .field-ml input,
 .perfume-form-grid .field-stock input,
 .perfume-form-grid .field-name input,
-.perfume-form-grid .field-brand input {
+.perfume-form-grid .field-brand input,
+.perfume-meta-row select {
   min-height: 40px;
   padding-top: 8px;
   padding-bottom: 8px;
@@ -746,10 +795,27 @@ textarea:focus {
 }
 
 .table-wrap {
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   border-radius: 16px;
   border: 1px solid rgba(117, 88, 78, 0.12);
   max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: rgba(117, 88, 78, 0.08);
+  border-radius: 999px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(143, 45, 35, 0.38);
+  border-radius: 999px;
 }
 
 table {
@@ -851,28 +917,120 @@ tbody tr:hover {
 }
 
 .inventory-table {
-  min-width: 1180px;
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  font-size: 0.8rem;
+}
+
+.inventory-table th,
+.inventory-table td {
+  padding: 10px 5px;
+  vertical-align: middle;
+}
+
+.inventory-table th {
+  font-size: 0.76rem;
+  line-height: 1.2;
 }
 
 .inventory-table th:first-child,
 .inventory-table td:first-child {
-  min-width: 190px;
+  width: 11%;
 }
 
 .inventory-table th:nth-child(2),
 .inventory-table td:nth-child(2) {
-  min-width: 110px;
+  width: 7%;
 }
 
-.inventory-table th:nth-child(5),
-.inventory-table td:nth-child(5),
+.inventory-table th:first-child,
+.inventory-table td:first-child,
+.inventory-table th:nth-child(2),
+.inventory-table td:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .inventory-table th:nth-child(6),
 .inventory-table td:nth-child(6),
 .inventory-table th:nth-child(7),
 .inventory-table td:nth-child(7),
 .inventory-table th:nth-child(8),
-.inventory-table td:nth-child(8) {
-  min-width: 120px;
+.inventory-table td:nth-child(8),
+.inventory-table th:nth-child(9),
+.inventory-table td:nth-child(9),
+.inventory-table th:nth-child(10),
+.inventory-table td:nth-child(10) {
+  width: 7.8%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inventory-table th:nth-child(3),
+.inventory-table td:nth-child(3) {
+  width: 7%;
+}
+
+.inventory-table th:nth-child(4),
+.inventory-table td:nth-child(4) {
+  width: 9%;
+}
+
+.inventory-table th:nth-child(5),
+.inventory-table td:nth-child(5) {
+  width: 4%;
+  white-space: nowrap;
+}
+
+.inventory-table th:nth-child(11),
+.inventory-table td:nth-child(11) {
+  width: 4.2%;
+}
+
+.inventory-table th:nth-child(12),
+.inventory-table td:nth-child(12) {
+  width: 6.3%;
+}
+
+.inventory-table th:nth-child(13),
+.inventory-table td:nth-child(13) {
+  width: 7%;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.inventory-table .inline-actions {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.inventory-table .chip-button {
+  padding: 6px 7px;
+}
+
+.inventory-table .text-button,
+.inventory-table .danger-text-button {
+  font-size: 0.78rem;
+}
+
+.inventory-table .tag {
+  padding: 6px 9px;
+  font-size: 0.76rem;
+}
+
+.inventory-table .profile-cell {
+  gap: 4px;
+}
+
+.inventory-table .source-link {
+  font-size: 0.72rem;
 }
 
 .tag {
@@ -897,6 +1055,41 @@ tbody tr:hover {
 .tag.pending {
   background: rgba(210, 123, 47, 0.14);
   color: var(--warning);
+}
+
+.profile-cell {
+  display: grid;
+  gap: 6px;
+  align-items: start;
+}
+
+.mini-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mini-tag {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(117, 88, 78, 0.1);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.source-link {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.source-link:hover {
+  text-decoration: underline;
 }
 
 .inline-actions {
@@ -949,11 +1142,7 @@ tbody tr:hover {
   grid-column: span 2;
 }
 
-@media (max-width: 1080px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 900px) {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -963,6 +1152,10 @@ tbody tr:hover {
     height: 100vh;
     overflow-y: auto;
     box-shadow: 24px 0 60px rgba(69, 33, 18, 0.24);
+  }
+
+  .main-content {
+    margin-left: 0;
   }
 
   .sidebar-toggle,
@@ -1006,6 +1199,10 @@ tbody tr:hover {
   }
 
   .perfume-second-row {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
+  .perfume-meta-row {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
 
@@ -1062,6 +1259,10 @@ tbody tr:hover {
   }
 
   .perfume-second-row {
+    grid-template-columns: 1fr;
+  }
+
+  .perfume-meta-row {
     grid-template-columns: 1fr;
   }
 

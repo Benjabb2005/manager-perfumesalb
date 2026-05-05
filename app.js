@@ -27,6 +27,20 @@ const PAYMENT_METHODS = {
   },
 };
 
+const PERFUME_GENDER_OPTIONS = ["Femenino", "Masculino", "Unisex", "Sin clasificar"];
+const PERFUME_PROFILE_OPTIONS = [
+  "Dulce",
+  "Floral",
+  "Frutal",
+  "Citrico",
+  "Fresco",
+  "Amaderado",
+  "Especiado",
+  "Oriental",
+  "Cuero",
+  "Sin clasificar",
+];
+
 const state = {
   perfumes: [],
   sales: [],
@@ -95,10 +109,13 @@ function cacheElements() {
 
   refs.perfumeForm = document.getElementById("perfumeForm");
   refs.brandSuggestions = document.getElementById("brandSuggestions");
+  refs.fragranticaSearchLink = document.getElementById("fragranticaSearchLink");
   refs.savePerfumeBtn = document.getElementById("savePerfumeBtn");
   refs.cancelPerfumeEditBtn = document.getElementById("cancelPerfumeEditBtn");
   refs.productSearch = document.getElementById("productSearch");
   refs.brandFilter = document.getElementById("brandFilter");
+  refs.genderFilter = document.getElementById("genderFilter");
+  refs.scentProfileFilter = document.getElementById("scentProfileFilter");
   refs.productSort = document.getElementById("productSort");
   refs.productsTableBody = document.getElementById("productsTableBody");
 
@@ -130,6 +147,7 @@ function cacheElements() {
   refs.priceFormulaForm = document.getElementById("priceFormulaForm");
   refs.priceCalculatorTableBody = document.getElementById("priceCalculatorTableBody");
   refs.authStatus = document.getElementById("authStatus");
+  refs.currentUserBadge = document.getElementById("currentUserBadge");
   refs.authLoginForm = document.getElementById("authLoginForm");
   refs.authRegisterForm = document.getElementById("authRegisterForm");
   refs.authLogoutBtn = document.getElementById("authLogoutBtn");
@@ -154,10 +172,14 @@ function bindEvents() {
   });
 
   refs.perfumeForm.addEventListener("submit", handlePerfumeSubmit);
+  refs.perfumeForm.name.addEventListener("input", syncFragranticaSearchLink);
+  refs.perfumeForm.brand.addEventListener("input", syncFragranticaSearchLink);
   refs.cancelPerfumeEditBtn.addEventListener("click", resetPerfumeForm);
   refs.historyForm.addEventListener("submit", handleHistorySubmit);
   refs.productSearch.addEventListener("input", renderProductsTable);
   refs.brandFilter.addEventListener("change", renderProductsTable);
+  refs.genderFilter.addEventListener("change", renderProductsTable);
+  refs.scentProfileFilter.addEventListener("change", renderProductsTable);
   refs.productSort.addEventListener("change", renderProductsTable);
 
   refs.saleProductSelect.addEventListener("change", syncSaleUnitPrice);
@@ -239,8 +261,7 @@ function closeConfirmDialog(result) {
 }
 
 function initSidebarState() {
-  const savedValue = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-  const shouldOpen = window.innerWidth <= 1080 ? false : savedValue === null ? true : savedValue === "true";
+  const shouldOpen = window.innerWidth > 900;
   setSidebarOpen(shouldOpen, false);
 }
 
@@ -260,7 +281,7 @@ function setSidebarOpen(isOpen, shouldSave = true) {
 }
 
 function closeSidebarOnSmallScreens() {
-  if (window.innerWidth <= 1080 && document.body.classList.contains("sidebar-open")) {
+  if (window.innerWidth <= 900 && document.body.classList.contains("sidebar-open")) {
     setSidebarOpen(false);
   }
 }
@@ -272,8 +293,13 @@ function closeSidebarWithEscape(event) {
 }
 
 function handleResponsiveSidebar() {
-  if (window.innerWidth <= 1080 && document.body.classList.contains("sidebar-open")) {
+  if (window.innerWidth <= 900 && document.body.classList.contains("sidebar-open")) {
     setSidebarOpen(false, false);
+    return;
+  }
+
+  if (window.innerWidth > 900 && !document.body.classList.contains("sidebar-open")) {
+    setSidebarOpen(true, false);
   }
 }
 
@@ -628,6 +654,12 @@ function normalizeState(saved = {}) {
           tiendanubeVariantId: item.tiendanubeVariantId || "",
           tiendanubeSku: item.tiendanubeSku || "",
           tiendanubeSyncedAt: item.tiendanubeSyncedAt || "",
+          gender: normalizePerfumeGender(item.gender),
+          scentProfile: normalizeScentProfile(item.scentProfile),
+          scentTags: normalizeScentTags(item.scentTags, item.scentProfile),
+          infoSource: item.infoSource || getFragranticaSearchUrl(item),
+          infoSourceTitle: item.infoSourceTitle || "Buscar en Fragrantica",
+          infoUpdatedAt: item.infoUpdatedAt || "",
           createdAt: item.createdAt || new Date().toISOString(),
         }))
       : [],
@@ -727,6 +759,7 @@ function renderAll() {
   syncBrandSuggestions();
   renderHistoryForm();
   syncBrandFilterOptions();
+  syncPerfumeFilterOptions();
   populateProductSelects();
   renderProductsTable();
   renderSalesTable();
@@ -754,20 +787,23 @@ function renderHistoryForm() {
   refs.historyForm.historicalDollarSpentUnits.value = state.history.dollarSpentUnits || 0;
 }
 
-function handlePerfumeSubmit(event) {
+async function handlePerfumeSubmit(event) {
   event.preventDefault();
   const formData = new FormData(refs.perfumeForm);
   const perfumeId = formData.get("perfumeId");
   const isEditingPerfume = Boolean(perfumeId);
+  const existingPerfume = perfumeId ? state.perfumes.find((item) => item.id === perfumeId) : null;
   const perfume = {
     id: perfumeId || crypto.randomUUID(),
     name: formData.get("name").trim(),
     brand: formData.get("brand").trim(),
+    gender: normalizePerfumeGender(formData.get("gender")),
+    scentProfile: normalizeScentProfile(formData.get("scentProfile")),
     ml: Number(formData.get("ml")) || 0,
     cost: Number(formData.get("cost")) || 0,
     price: Number(formData.get("price")) || 0,
     stock: Number(formData.get("stock")) || 0,
-    createdAt: new Date().toISOString(),
+    createdAt: existingPerfume?.createdAt || new Date().toISOString(),
   };
 
   if (!perfume.name) {
@@ -775,16 +811,25 @@ function handlePerfumeSubmit(event) {
     return;
   }
 
+  let enrichedPerfume = {
+    ...existingPerfume,
+    ...perfume,
+    scentTags: normalizeScentTags([perfume.scentProfile], perfume.scentProfile),
+    infoSource: getFragranticaSearchUrl(perfume),
+    infoSourceTitle: "Buscar en Fragrantica",
+    infoUpdatedAt: new Date().toISOString(),
+  };
+
   if (perfumeId) {
     const index = state.perfumes.findIndex((item) => item.id === perfumeId);
     if (index >= 0) {
       state.perfumes[index] = {
         ...state.perfumes[index],
-        ...perfume,
+        ...enrichedPerfume,
       };
     }
   } else {
-    state.perfumes.push(perfume);
+    state.perfumes.push(enrichedPerfume);
   }
 
   resetPerfumeForm();
@@ -831,7 +876,7 @@ async function syncTiendanubeProducts() {
     let created = 0;
     let updated = 0;
 
-    products.forEach((product) => {
+    for (const product of products) {
       const existingIndex = findPerfumeIndexByTiendanubeProduct(product);
       const normalized = {
         id: existingIndex >= 0 ? state.perfumes[existingIndex].id : crypto.randomUUID(),
@@ -847,18 +892,28 @@ async function syncTiendanubeProducts() {
         tiendanubeSyncedAt: new Date().toISOString(),
         createdAt: existingIndex >= 0 ? state.perfumes[existingIndex].createdAt : new Date().toISOString(),
       };
+      const existing = existingIndex >= 0 ? state.perfumes[existingIndex] : null;
+      const enriched = {
+        ...normalized,
+        gender: normalizePerfumeGender(existing?.gender),
+        scentProfile: normalizeScentProfile(existing?.scentProfile),
+        scentTags: normalizeScentTags(existing?.scentTags, existing?.scentProfile),
+        infoSource: getFragranticaSearchUrl(normalized),
+        infoSourceTitle: "Buscar en Fragrantica",
+        infoUpdatedAt: new Date().toISOString(),
+      };
 
       if (existingIndex >= 0) {
         state.perfumes[existingIndex] = {
           ...state.perfumes[existingIndex],
-          ...normalized,
+          ...enriched,
         };
         updated += 1;
       } else {
-        state.perfumes.push(normalized);
+        state.perfumes.push(enriched);
         created += 1;
       }
-    });
+    }
 
     saveState();
     renderAll();
@@ -905,11 +960,14 @@ async function syncTiendanubeStockForSale(sale) {
 function resetPerfumeForm() {
   refs.perfumeForm.reset();
   refs.perfumeForm.perfumeId.value = "";
+  refs.perfumeForm.gender.value = "";
+  refs.perfumeForm.scentProfile.value = "";
   refs.perfumeForm.ml.value = 100;
   refs.perfumeForm.cost.value = 0;
   refs.perfumeForm.stock.value = 0;
   refs.savePerfumeBtn.textContent = "Guardar perfume";
   refs.cancelPerfumeEditBtn.hidden = true;
+  syncFragranticaSearchLink();
 }
 
 function startPerfumeEdit(perfumeId) {
@@ -919,12 +977,15 @@ function startPerfumeEdit(perfumeId) {
   refs.perfumeForm.perfumeId.value = perfume.id;
   refs.perfumeForm.name.value = perfume.name || "";
   refs.perfumeForm.brand.value = perfume.brand || "";
+  refs.perfumeForm.gender.value = normalizePerfumeGender(perfume.gender) === "Sin clasificar" ? "" : normalizePerfumeGender(perfume.gender);
+  refs.perfumeForm.scentProfile.value = normalizeScentProfile(perfume.scentProfile) === "Sin clasificar" ? "" : normalizeScentProfile(perfume.scentProfile);
   refs.perfumeForm.ml.value = perfume.ml || 0;
   refs.perfumeForm.cost.value = perfume.cost || 0;
   refs.perfumeForm.price.value = perfume.price || 0;
   refs.perfumeForm.stock.value = perfume.stock || 0;
   refs.savePerfumeBtn.textContent = "Guardar cambios";
   refs.cancelPerfumeEditBtn.hidden = false;
+  syncFragranticaSearchLink();
   refs.perfumeForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -960,6 +1021,31 @@ function syncBrandSuggestions() {
     .join("");
 }
 
+function syncFragranticaSearchLink() {
+  const name = refs.perfumeForm?.name?.value || "";
+  const brand = refs.perfumeForm?.brand?.value || "";
+  refs.fragranticaSearchLink.href = getFragranticaSearchUrl({ name, brand });
+}
+
+function getFragranticaSearchUrl(perfume = {}) {
+  const query = encodeURIComponent(`${perfume.brand || ""} ${perfume.name || ""}`.trim());
+  return query ? `https://www.fragrantica.com/search/?query=${query}` : "https://www.fragrantica.com/";
+}
+
+function syncPerfumeFilterOptions() {
+  syncStaticSelectOptions(refs.genderFilter, "Todos los generos", PERFUME_GENDER_OPTIONS);
+  syncStaticSelectOptions(refs.scentProfileFilter, "Todos los perfiles", PERFUME_PROFILE_OPTIONS);
+}
+
+function syncStaticSelectOptions(select, allLabel, options) {
+  const currentValue = select.value;
+  select.innerHTML = [
+    `<option value="">${escapeHtml(allLabel)}</option>`,
+    ...options.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`),
+  ].join("");
+  select.value = options.includes(currentValue) ? currentValue : "";
+}
+
 function handlePriceFormulaInput() {
   const formData = new FormData(refs.priceFormulaForm);
   priceFormulaState.baseExtra = Number(formData.get("baseExtra")) || 0;
@@ -981,6 +1067,7 @@ function renderAuthGate() {
     `;
     refs.authScreen.hidden = true;
     refs.appShell.hidden = false;
+    refs.currentUserBadge.hidden = true;
     refs.authLogoutBtn.hidden = true;
     return;
   }
@@ -993,6 +1080,7 @@ function renderAuthGate() {
     `;
     refs.authScreen.hidden = false;
     refs.appShell.hidden = true;
+    refs.currentUserBadge.hidden = true;
     refs.authLogoutBtn.hidden = true;
     return;
   }
@@ -1003,6 +1091,11 @@ function renderAuthGate() {
   `;
   refs.authScreen.hidden = true;
   refs.appShell.hidden = false;
+  refs.currentUserBadge.innerHTML = `
+    <span>Cuenta iniciada</span>
+    <strong>${escapeHtml(user.email || "Usuario conectado")}</strong>
+  `;
+  refs.currentUserBadge.hidden = false;
   refs.authLogoutBtn.hidden = false;
 }
 
@@ -1637,10 +1730,14 @@ function renderBankMovementsTable() {
 function renderProductsTable() {
   const query = refs.productSearch.value.trim().toLowerCase();
   const brandFilter = refs.brandFilter.value.trim().toLowerCase();
+  const genderFilter = refs.genderFilter.value.trim().toLowerCase();
+  const scentProfileFilter = refs.scentProfileFilter.value.trim().toLowerCase();
   const sortMode = refs.productSort.value;
   const filtered = state.perfumes
-    .filter((item) => `${item.name} ${item.brand}`.toLowerCase().includes(query))
+    .filter((item) => `${item.name} ${item.brand} ${getDisplayPerfumeGender(item)} ${item.scentProfile} ${(item.scentTags || []).join(" ")}`.toLowerCase().includes(query))
     .filter((item) => !brandFilter || (item.brand || "").trim().toLowerCase() === brandFilter)
+    .filter((item) => !genderFilter || getDisplayPerfumeGender(item).toLowerCase() === genderFilter)
+    .filter((item) => !scentProfileFilter || normalizeScentProfile(item.scentProfile).toLowerCase() === scentProfileFilter)
     .sort((a, b) => {
       if (sortMode === "price-desc") return b.price - a.price;
       if (sortMode === "price-asc") return a.price - b.price;
@@ -1651,7 +1748,7 @@ function renderProductsTable() {
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="12">No hay perfumes cargados todavia.</td>`;
+    row.innerHTML = `<td colspan="13">No hay perfumes cargados todavia.</td>`;
     refs.productsTableBody.appendChild(row);
     return;
   }
@@ -1661,6 +1758,8 @@ function renderProductsTable() {
     row.innerHTML = `
       <td data-label="Producto"><strong>${escapeHtml(item.name)}</strong></td>
       <td data-label="Marca">${escapeHtml(item.brand || "-")}</td>
+      <td data-label="Genero">${renderInfoTag(getDisplayPerfumeGender(item))}</td>
+      <td data-label="Perfil">${renderScentProfileCell(item)}</td>
       <td data-label="ML">${item.ml ? `${escapeHtml(String(item.ml))} ml` : "-"}</td>
       <td data-label="Costo">${formatCurrency(item.cost)}</td>
       <td data-label="Precio lista">${formatCurrency(item.price)}</td>
@@ -1668,14 +1767,18 @@ function renderProductsTable() {
       <td data-label="Tarjeta 1 cuota">${formatCurrency(getPaymentNet(item.price, "Tarjeta1"))}</td>
       <td data-label="Tarjeta 2 cuotas">${formatCurrency(getPaymentNet(item.price, "Tarjeta2"))}</td>
       <td data-label="Stock"><span class="tag ${item.stock <= 1 ? "low" : "ok"}">${item.stock}</span></td>
-      <td data-label="Editar"><button type="button" class="text-button" data-edit-product="1">Editar</button></td>
       <td data-label="Ajustar">
         <div class="inline-actions">
           <button type="button" class="chip-button" data-stock-action="-1">-1</button>
           <button type="button" class="chip-button" data-stock-action="1">+1</button>
         </div>
       </td>
-      <td data-label="Eliminar"><button type="button" class="danger-text-button" data-delete-product="1">Borrar</button></td>
+      <td data-label="Acciones">
+        <div class="row-actions">
+          <button type="button" class="text-button" data-edit-product="1">Editar</button>
+          <button type="button" class="danger-text-button" data-delete-product="1">Borrar</button>
+        </div>
+      </td>
     `;
 
     row.querySelectorAll("[data-stock-action]").forEach((button) => {
@@ -1686,6 +1789,30 @@ function renderProductsTable() {
 
     refs.productsTableBody.appendChild(row);
   });
+}
+
+function renderInfoTag(value) {
+  const normalized = value || "Sin clasificar";
+  const className = normalized === "Sin clasificar" ? "pending" : "ok";
+  return `<span class="tag ${className}">${escapeHtml(normalized)}</span>`;
+}
+
+function getDisplayPerfumeGender(perfume) {
+  return normalizePerfumeGender(perfume.gender);
+}
+
+function renderScentProfileCell(item) {
+  const profile = normalizeScentProfile(item.scentProfile);
+  const sourceLink = item.infoSource
+    ? `<a class="source-link" href="${escapeHtml(item.infoSource)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(item.infoSourceTitle || "Fuente externa")}">fuente</a>`
+    : "";
+
+  return `
+    <div class="profile-cell">
+      ${renderInfoTag(profile)}
+      ${sourceLink}
+    </div>
+  `;
 }
 
 function renderSalesTable() {
@@ -1905,10 +2032,14 @@ function exportExcelWorkbook() {
       {
         name: "Perfumes",
         rows: [
-          ["Producto", "Marca", "ML", "Costo", "Precio lista", "Transferencia / efectivo", "Tarjeta 1 cuota", "Tarjeta 2 cuotas", "Stock"],
+          ["Producto", "Marca", "Genero", "Perfil", "Etiquetas", "Fuente", "ML", "Costo", "Precio lista", "Transferencia / efectivo", "Tarjeta 1 cuota", "Tarjeta 2 cuotas", "Stock"],
           ...state.perfumes.map((item) => [
             item.name,
             item.brand || "",
+            normalizePerfumeGender(item.gender),
+            normalizeScentProfile(item.scentProfile),
+            normalizeScentTags(item.scentTags, item.scentProfile).join(", "),
+            item.infoSource || "",
             item.ml || "",
             item.cost || 0,
             item.price,
@@ -2010,9 +2141,9 @@ async function loadDemoData() {
   if (!confirmed) return;
 
   state.perfumes = [
-    { id: crypto.randomUUID(), name: "Armaf Club de Nuit Iconic", brand: "Armaf", ml: 105, cost: 69770, price: 95000, stock: 4, createdAt: new Date().toISOString() },
-    { id: crypto.randomUUID(), name: "Lattafa Yara", brand: "Lattafa", ml: 100, cost: 41760, price: 72000, stock: 6, createdAt: new Date().toISOString() },
-    { id: crypto.randomUUID(), name: "Afnan 9PM", brand: "Afnan", ml: 100, cost: 52300, price: 68000, stock: 2, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), name: "Armaf Club de Nuit Iconic", brand: "Armaf", gender: "Masculino", scentProfile: "Fresco", scentTags: ["Fresco"], infoSource: getFragranticaSearchUrl({ name: "Armaf Club de Nuit Iconic", brand: "Armaf" }), infoSourceTitle: "Buscar en Fragrantica", infoUpdatedAt: new Date().toISOString(), ml: 105, cost: 69770, price: 95000, stock: 4, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), name: "Lattafa Yara", brand: "Lattafa", gender: "Femenino", scentProfile: "Dulce", scentTags: ["Dulce"], infoSource: getFragranticaSearchUrl({ name: "Lattafa Yara", brand: "Lattafa" }), infoSourceTitle: "Buscar en Fragrantica", infoUpdatedAt: new Date().toISOString(), ml: 100, cost: 41760, price: 72000, stock: 6, createdAt: new Date().toISOString() },
+    { id: crypto.randomUUID(), name: "Afnan 9PM", brand: "Afnan", gender: "Masculino", scentProfile: "Dulce", scentTags: ["Dulce"], infoSource: getFragranticaSearchUrl({ name: "Afnan 9PM", brand: "Afnan" }), infoSourceTitle: "Buscar en Fragrantica", infoUpdatedAt: new Date().toISOString(), ml: 100, cost: 52300, price: 68000, stock: 2, createdAt: new Date().toISOString() },
   ];
 
   state.sales = [
@@ -2419,6 +2550,37 @@ function getPaymentLabel(methodKey) {
 
 function roundCurrency(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizePerfumeGender(value) {
+  const normalized = normalizeText(value);
+  return PERFUME_GENDER_OPTIONS.find((option) => normalizeText(option) === normalized) || "Sin clasificar";
+}
+
+function normalizeScentProfile(value) {
+  const normalized = normalizeText(value);
+  return PERFUME_PROFILE_OPTIONS.find((option) => normalizeText(option) === normalized) || "Sin clasificar";
+}
+
+function normalizeScentTags(tags, fallback) {
+  const values = Array.isArray(tags) ? tags : [];
+  const normalizedTags = values
+    .map(normalizeScentProfile)
+    .filter((tag) => tag !== "Sin clasificar")
+    .filter((tag, index, allTags) => allTags.indexOf(tag) === index);
+  const normalizedFallback = normalizeScentProfile(fallback);
+  if (normalizedFallback !== "Sin clasificar" && !normalizedTags.includes(normalizedFallback)) {
+    normalizedTags.unshift(normalizedFallback);
+  }
+  return normalizedTags;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function formatCurrency(value) {
