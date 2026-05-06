@@ -25,6 +25,14 @@ const PAYMENT_METHODS = {
     label: "Tarjeta 2 cuotas",
     factor: (price) => price - ((price * 0.0559) * 1.21) - ((price * 0.0889) * 1.21),
   },
+  Promo: {
+    label: "Promocion",
+    factor: (price) => getPromoPrice(price),
+  },
+  Descuento20: {
+    label: "20% descuento",
+    factor: (price) => getDiscount20Price(price),
+  },
 };
 
 const PERFUME_GENDER_OPTIONS = ["Femenino", "Masculino", "Unisex", "Sin clasificar"];
@@ -1313,6 +1321,14 @@ function getPaymentNet(price, methodKey) {
   return roundCurrency(paymentMethod.factor(Number(price) || 0));
 }
 
+function getPromoPrice(price) {
+  return Math.max(0, roundToThousands((Number(price) || 0) * 0.9 - priceFormulaState.markdownAmount));
+}
+
+function getDiscount20Price(price) {
+  return roundCurrency((Number(price) || 0) * 0.8);
+}
+
 function syncSaleUnitPrice() {
   const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
   if (!perfume) {
@@ -1748,24 +1764,38 @@ function renderProductsTable() {
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="13">No hay perfumes cargados todavia.</td>`;
+    row.innerHTML = `<td colspan="9">No hay perfumes cargados todavia.</td>`;
     refs.productsTableBody.appendChild(row);
     return;
   }
 
   filtered.forEach((item) => {
     const row = document.createElement("tr");
+    const priceItems = [
+      ["Costo", item.cost],
+      ["Lista", item.price],
+      ["Transf. / efectivo", getPaymentNet(item.price, "Transferencia")],
+      ["Tarjeta 1", getPaymentNet(item.price, "Tarjeta1")],
+      ["Tarjeta 2", getPaymentNet(item.price, "Tarjeta2")],
+      ["Promo", getPaymentNet(item.price, "Promo")],
+      ["20% off", getPaymentNet(item.price, "Descuento20")],
+    ];
     row.innerHTML = `
       <td data-label="Producto"><strong>${escapeHtml(item.name)}</strong></td>
       <td data-label="Marca">${escapeHtml(item.brand || "-")}</td>
       <td data-label="Genero">${renderInfoTag(getDisplayPerfumeGender(item))}</td>
       <td data-label="Perfil">${renderScentProfileCell(item)}</td>
       <td data-label="ML">${item.ml ? `${escapeHtml(String(item.ml))} ml` : "-"}</td>
-      <td data-label="Costo">${formatCurrency(item.cost)}</td>
-      <td data-label="Precio lista">${formatCurrency(item.price)}</td>
-      <td data-label="Transf. / efectivo">${formatCurrency(getPaymentNet(item.price, "Transferencia"))}</td>
-      <td data-label="Tarjeta 1 cuota">${formatCurrency(getPaymentNet(item.price, "Tarjeta1"))}</td>
-      <td data-label="Tarjeta 2 cuotas">${formatCurrency(getPaymentNet(item.price, "Tarjeta2"))}</td>
+      <td data-label="Precios">
+        <div class="product-price-scroll" tabindex="0" aria-label="Precios de ${escapeHtml(item.name)}">
+          ${priceItems.map(([label, value]) => `
+            <div class="product-price-pill">
+              <span>${escapeHtml(label)}</span>
+              <strong>${formatCurrency(value)}</strong>
+            </div>
+          `).join("")}
+        </div>
+      </td>
       <td data-label="Stock"><span class="tag ${item.stock <= 1 ? "low" : "ok"}">${item.stock}</span></td>
       <td data-label="Ajustar">
         <div class="inline-actions">
@@ -2032,7 +2062,7 @@ function exportExcelWorkbook() {
       {
         name: "Perfumes",
         rows: [
-          ["Producto", "Marca", "Genero", "Perfil", "Etiquetas", "Fuente", "ML", "Costo", "Precio lista", "Transferencia / efectivo", "Tarjeta 1 cuota", "Tarjeta 2 cuotas", "Stock"],
+          ["Producto", "Marca", "Genero", "Perfil", "Etiquetas", "Fuente", "ML", "Costo", "Precio lista", "Transferencia / efectivo", "Tarjeta 1 cuota", "Tarjeta 2 cuotas", "Promo", "20% descuento", "Stock"],
           ...state.perfumes.map((item) => [
             item.name,
             item.brand || "",
@@ -2046,6 +2076,8 @@ function exportExcelWorkbook() {
             getPaymentNet(item.price, "Transferencia"),
             getPaymentNet(item.price, "Tarjeta1"),
             getPaymentNet(item.price, "Tarjeta2"),
+            getPaymentNet(item.price, "Promo"),
+            getPaymentNet(item.price, "Descuento20"),
             item.stock,
           ]),
         ],
@@ -2412,7 +2444,7 @@ function renderPriceCalculator() {
     .forEach((perfume) => {
       const suggestedPrice = calculateSuggestedPrice(perfume.cost);
       const transferPrice = getPaymentNet(suggestedPrice, "Transferencia");
-      const markdownPrice = roundToThousands(transferPrice - priceFormulaState.markdownAmount);
+      const markdownPrice = getPromoPrice(suggestedPrice);
       const promoPrice = roundCurrency(suggestedPrice * (1 - priceFormulaState.promoDiscountPercent / 100));
 
       const row = document.createElement("tr");
