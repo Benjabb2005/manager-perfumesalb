@@ -115,6 +115,7 @@ function cacheElements() {
   refs.tabs = document.querySelectorAll(".nav-tab");
   refs.panels = document.querySelectorAll(".tab-panel");
   refs.statsGrid = document.getElementById("statsGrid");
+  refs.pendingPaymentsAlert = document.getElementById("pendingPaymentsAlert");
   refs.analysisStatsGrid = document.getElementById("analysisStatsGrid");
   refs.bankStatsGrid = document.getElementById("bankStatsGrid");
   refs.topProducts = document.getElementById("topProducts");
@@ -2539,6 +2540,8 @@ function renderDashboard() {
     `)
     .join("");
 
+  renderPendingPaymentsAlert();
+
   const bankStats = [
     { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
     { label: "Total dolares comprados", value: `${roundCurrency(summary.totalDollarBoughtUnits)} USD` },
@@ -2598,6 +2601,31 @@ function renderDashboard() {
     })),
     "Todavia no registraste gastos."
   );
+}
+
+function renderPendingPaymentsAlert() {
+  const pendingPayments = getPendingSalePayments();
+
+  if (!pendingPayments.length) {
+    refs.pendingPaymentsAlert.innerHTML = "";
+    return;
+  }
+
+  const totalPending = pendingPayments.reduce((sum, item) => sum + item.amount, 0);
+  refs.pendingPaymentsAlert.innerHTML = `
+    <article class="pending-payments-alert">
+      <div>
+        <span>Cuotas pendientes</span>
+        <strong>${formatCurrency(totalPending)}</strong>
+      </div>
+      <div class="pending-payments-list">
+        ${pendingPayments.slice(0, 4).map((item) => `
+          <span>${escapeHtml(item.customer)} · ${formatCurrency(item.amount)} · vence ${formatDate(item.dueDate)}</span>
+        `).join("")}
+        ${pendingPayments.length > 4 ? `<span>+${pendingPayments.length - 4} mas</span>` : ""}
+      </div>
+    </article>
+  `;
 }
 
 function renderStackList(container, items, emptyMessage) {
@@ -3185,6 +3213,19 @@ function getChannelBreakdown() {
   return Object.values(channelMap)
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
+}
+
+function getPendingSalePayments() {
+  return state.sales
+    .flatMap((sale) => getSalePayments(sale)
+      .filter((payment) => !payment.paid && payment.amount > 0)
+      .map((payment) => ({
+        saleId: sale.id,
+        customer: sale.customer || "Sin cliente",
+        amount: Number(payment.amount) || 0,
+        dueDate: payment.dueDate || sale.date,
+      })))
+    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 }
 
 function getRecentSales(limit = 5) {

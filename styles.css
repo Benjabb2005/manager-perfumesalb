@@ -702,6 +702,49 @@ textarea {
   word-break: normal;
 }
 
+.pending-payments-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -4px 0 18px;
+  padding: 12px 16px;
+  border: 1px solid rgba(184, 123, 38, 0.22);
+  border-left: 4px solid rgba(184, 123, 38, 0.58);
+  border-radius: 16px;
+  background: rgba(210, 169, 84, 0.1);
+}
+
+.pending-payments-alert > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+}
+
+.pending-payments-alert span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.pending-payments-alert strong {
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--ink);
+}
+
+.pending-payments-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pending-payments-list span {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(117, 88, 78, 0.1);
+}
+
 .form-grid {
   display: grid;
   gap: 14px;
@@ -1560,6 +1603,15 @@ tbody tr:hover {
   .stat-card {
     padding: 14px;
     border-radius: var(--radius-md);
+  }
+
+  .pending-payments-alert {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pending-payments-list {
+    justify-content: flex-start;
   }
 
   .toast-region {
