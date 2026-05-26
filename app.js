@@ -3098,13 +3098,21 @@ function renderPriceCalculator() {
       const transferPrice = getPaymentNet(suggestedPrice, "Transferencia");
       const markdownPrice = getPromoPrice(suggestedPrice);
       const promoPrice = roundCurrency(suggestedPrice * (1 - priceFormulaState.promoDiscountPercent / 100));
+      const priceDiff = roundCurrency(suggestedPrice - (Number(perfume.price) || 0));
+      const needsPriceReview = Math.abs(priceDiff) > 0;
 
       const row = document.createElement("tr");
+      row.classList.toggle("price-review-row", needsPriceReview);
       row.innerHTML = `
         <td data-label="Producto"><strong>${escapeHtml(perfume.name)}</strong></td>
         <td data-label="Marca">${escapeHtml(perfume.brand || "-")}</td>
         <td data-label="Costo">${formatCurrency(perfume.cost)}</td>
-        <td data-label="Precio actual">${formatCurrency(perfume.price)}</td>
+        <td data-label="Precio actual">
+          <div class="price-current-cell">
+            <strong>${formatCurrency(perfume.price)}</strong>
+            ${needsPriceReview ? `<span class="price-review-pill">${priceDiff > 0 ? "+" : ""}${formatCurrency(priceDiff)}</span>` : ""}
+          </div>
+        </td>
         <td data-label="Precio sugerido">${formatCurrency(suggestedPrice)}</td>
         <td data-label="Transferencia">${formatCurrency(transferPrice)}</td>
         <td data-label="Rebajado">${formatCurrency(markdownPrice)}</td>

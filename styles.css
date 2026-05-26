@@ -625,6 +625,35 @@ textarea {
   line-height: 1.15;
 }
 
+.compact-price-table .price-review-row {
+  background: rgba(210, 169, 84, 0.08);
+  box-shadow: inset 3px 0 0 rgba(184, 123, 38, 0.42);
+}
+
+.compact-price-table .price-review-row:hover {
+  background: rgba(210, 169, 84, 0.12);
+}
+
+.price-current-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.price-current-cell strong {
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.price-review-pill {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(184, 123, 38, 0.14);
+  color: #8a531b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
 .panel {
   border-radius: var(--radius-lg);
   padding: 20px;
