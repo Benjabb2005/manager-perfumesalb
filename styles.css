@@ -846,6 +846,16 @@ tbody tr:hover {
   gap: 10px;
 }
 
+.installment-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.installment-fields[hidden] {
+  display: none;
+}
+
 .mini-item,
 .stack-item,
 .totals-box {
@@ -865,6 +875,27 @@ tbody tr:hover {
 
 .totals-box strong {
   font-family: "Space Grotesk", sans-serif;
+}
+
+.muted-cell,
+.payment-line span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.payment-line {
+  display: grid;
+  gap: 2px;
+}
+
+.payment-line + .payment-line {
+  margin-top: 8px;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .auth-status {

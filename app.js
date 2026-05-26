@@ -25,6 +25,14 @@ const PAYMENT_METHODS = {
     label: "Tarjeta 2 cuotas",
     factor: (price) => price - ((price * 0.0559) * 1.21) - ((price * 0.0889) * 1.21),
   },
+  Personalizado: {
+    label: "Personalizado",
+    factor: (price) => price,
+  },
+  Personalizado2: {
+    label: "Personalizado en 2 cuotas",
+    factor: (price) => price,
+  },
   Promo: {
     label: "Promocion",
     factor: (price) => getPromoPrice(price),
@@ -54,6 +62,7 @@ const state = {
   sales: [],
   expenses: [],
   subscriptions: [],
+  bankIncomes: [],
   withdrawals: [],
   dollarPurchases: [],
   dollarSpends: [],
@@ -65,6 +74,7 @@ const state = {
     initialInvestment: 0,
     boughtUnits: 0,
     subscriptionsAmount: 0,
+    bankIncomesAmount: 0,
     withdrawalsAmount: 0,
     dollarPurchasePesos: 0,
     dollarBoughtUnits: 0,
@@ -131,6 +141,9 @@ function cacheElements() {
   refs.saleProductSelect = document.getElementById("saleProductSelect");
   refs.saleQtyInput = document.getElementById("saleQtyInput");
   refs.saleUnitPriceInput = document.getElementById("saleUnitPriceInput");
+  refs.saleInstallmentFields = document.getElementById("saleInstallmentFields");
+  refs.saleFirstPaymentInput = document.getElementById("saleFirstPaymentInput");
+  refs.saleSecondDueDateInput = document.getElementById("saleSecondDueDateInput");
   refs.addSaleItemBtn = document.getElementById("addSaleItemBtn");
   refs.saleItemsList = document.getElementById("saleItemsList");
   refs.saleSummary = document.getElementById("saleSummary");
@@ -142,6 +155,7 @@ function cacheElements() {
   refs.dollarPurchaseForm = document.getElementById("dollarPurchaseForm");
   refs.dollarSpendForm = document.getElementById("dollarSpendForm");
   refs.subscriptionForm = document.getElementById("subscriptionForm");
+  refs.bankIncomeForm = document.getElementById("bankIncomeForm");
   refs.withdrawalForm = document.getElementById("withdrawalForm");
   refs.dollarTableBody = document.getElementById("dollarTableBody");
   refs.bankMovementsTableBody = document.getElementById("bankMovementsTableBody");
@@ -191,7 +205,14 @@ function bindEvents() {
   refs.productSort.addEventListener("change", renderProductsTable);
 
   refs.saleProductSelect.addEventListener("change", syncSaleUnitPrice);
-  refs.saleForm.paymentMethod.addEventListener("change", syncSaleUnitPrice);
+  refs.saleForm.paymentMethod.addEventListener("change", () => {
+    syncSaleUnitPrice();
+    syncSalePaymentFields(true);
+    renderSaleDraft();
+  });
+  refs.saleForm.date.addEventListener("change", () => syncSalePaymentFields(true));
+  refs.saleFirstPaymentInput.addEventListener("input", renderSaleDraft);
+  refs.saleSecondDueDateInput.addEventListener("input", renderSaleDraft);
   refs.addSaleItemBtn.addEventListener("click", addSaleDraftItem);
   refs.saleForm.addEventListener("submit", handleSaleSubmit);
 
@@ -201,6 +222,7 @@ function bindEvents() {
   refs.dollarPurchaseForm.dollarPrice.addEventListener("input", syncDollarPurchaseAmount);
   refs.dollarSpendForm.addEventListener("submit", handleDollarSpendSubmit);
   refs.subscriptionForm.addEventListener("submit", handleSubscriptionSubmit);
+  refs.bankIncomeForm.addEventListener("submit", handleBankIncomeSubmit);
   refs.withdrawalForm.addEventListener("submit", handleWithdrawalSubmit);
 
   refs.exportBtn.addEventListener("click", exportData);
@@ -345,7 +367,9 @@ function seedDefaultDates() {
   if (!refs.dollarPurchaseForm.date.value) refs.dollarPurchaseForm.date.value = today;
   if (!refs.dollarSpendForm.date.value) refs.dollarSpendForm.date.value = today;
   if (!refs.subscriptionForm.date.value) refs.subscriptionForm.date.value = today;
+  if (!refs.bankIncomeForm.date.value) refs.bankIncomeForm.date.value = today;
   if (!refs.withdrawalForm.date.value) refs.withdrawalForm.date.value = today;
+  syncSalePaymentFields();
 }
 
 function switchTab(targetId) {
@@ -635,6 +659,7 @@ function hydrateState(saved) {
   state.sales = normalized.sales;
   state.expenses = normalized.expenses;
   state.subscriptions = normalized.subscriptions;
+  state.bankIncomes = normalized.bankIncomes;
   state.withdrawals = normalized.withdrawals;
   state.dollarPurchases = normalized.dollarPurchases;
   state.dollarSpends = normalized.dollarSpends;
@@ -672,36 +697,73 @@ function normalizeState(saved = {}) {
         }))
       : [],
     sales: Array.isArray(saved.sales)
-      ? saved.sales.map((sale) => ({
-          id: sale.id || crypto.randomUUID(),
-          customer: sale.customer || "",
-          date: sale.date || today,
-          paymentMethod: sale.paymentMethod || "Transferencia",
-          channel: sale.channel || "",
-          items: Array.isArray(sale.items)
-            ? sale.items.map((item) => ({
-                id: item.id || crypto.randomUUID(),
-                perfumeId: item.perfumeId || "",
-                name: item.name || "Sin nombre",
-                qty: Number(item.qty) || 1,
-                basePrice: Number(item.basePrice) || Number(item.unitPrice) || 0,
-                paymentMethod: item.paymentMethod || sale.paymentMethod || "Transferencia",
-                unitNet: Number(item.unitNet) || Number(item.unitPrice) || 0,
-              }))
-            : [],
-          grossTotal: Number(sale.grossTotal) || Number(sale.total) || 0,
-          total: Number(sale.total) || 0,
-          createdAt: sale.createdAt || new Date().toISOString(),
-        }))
+      ? saved.sales.map((sale) => normalizeSale(sale, today))
       : [],
     expenses: normalizeExpenses(saved),
     subscriptions: Array.isArray(saved.subscriptions) ? saved.subscriptions : [],
+    bankIncomes: Array.isArray(saved.bankIncomes) ? saved.bankIncomes : [],
     withdrawals: Array.isArray(saved.withdrawals) ? saved.withdrawals : [],
     dollarPurchases: Array.isArray(saved.dollarPurchases) ? saved.dollarPurchases : [],
     dollarSpends: Array.isArray(saved.dollarSpends) ? saved.dollarSpends : [],
     history: normalizeHistory(saved.history),
     priceFormula: normalizePriceFormula(saved.priceFormula),
   };
+}
+
+function normalizeSale(sale = {}, today) {
+  const items = Array.isArray(sale.items)
+    ? sale.items.map((item) => ({
+        id: item.id || crypto.randomUUID(),
+        perfumeId: item.perfumeId || "",
+        name: item.name || "Sin nombre",
+        qty: Number(item.qty) || 1,
+        basePrice: Number(item.basePrice) || Number(item.unitPrice) || 0,
+        paymentMethod: item.paymentMethod || sale.paymentMethod || "Transferencia",
+        unitNet: Number(item.unitNet) || Number(item.unitPrice) || 0,
+        tiendanubeProductId: item.tiendanubeProductId || "",
+        tiendanubeVariantId: item.tiendanubeVariantId || "",
+        tiendanubeSku: item.tiendanubeSku || "",
+      }))
+    : [];
+  const agreedTotal = Number(sale.agreedTotal) || Number(sale.fullTotal) || Number(sale.total) || 0;
+  const payments = normalizeSalePayments(sale, agreedTotal, today);
+  const paidTotal = getPaymentsPaidTotal(payments);
+
+  return {
+    id: sale.id || crypto.randomUUID(),
+    customer: sale.customer || "",
+    date: sale.date || today,
+    paymentMethod: sale.paymentMethod || "Transferencia",
+    channel: sale.channel || "",
+    items,
+    grossTotal: Number(sale.grossTotal) || agreedTotal,
+    agreedTotal,
+    total: paidTotal,
+    payments,
+    createdAt: sale.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeSalePayments(sale, agreedTotal, today) {
+  if (Array.isArray(sale.payments) && sale.payments.length) {
+    return sale.payments.map((payment, index) => ({
+      id: payment.id || crypto.randomUUID(),
+      label: payment.label || `Pago ${index + 1}`,
+      amount: Number(payment.amount) || 0,
+      dueDate: payment.dueDate || sale.date || today,
+      paidDate: payment.paidDate || "",
+      paid: Boolean(payment.paid || payment.paidDate),
+    }));
+  }
+
+  return [{
+    id: crypto.randomUUID(),
+    label: "Pago completo",
+    amount: Number(sale.total) || agreedTotal,
+    dueDate: sale.date || today,
+    paidDate: sale.date || today,
+    paid: true,
+  }];
 }
 
 function normalizeExpenses(saved = {}) {
@@ -727,6 +789,7 @@ function normalizeHistory(history = {}) {
     initialInvestment: Number(history.initialInvestment) || 0,
     boughtUnits: Number(history.boughtUnits) || 0,
     subscriptionsAmount: Number(history.subscriptionsAmount) || 0,
+    bankIncomesAmount: Number(history.bankIncomesAmount) || 0,
     withdrawalsAmount: Number(history.withdrawalsAmount) || 0,
     dollarPurchasePesos: Number(history.dollarPurchasePesos) || 0,
     dollarBoughtUnits: Number(history.dollarBoughtUnits) || 0,
@@ -754,6 +817,7 @@ function getStateSnapshot() {
     sales: state.sales,
     expenses: state.expenses,
     subscriptions: state.subscriptions,
+    bankIncomes: state.bankIncomes,
     withdrawals: state.withdrawals,
     dollarPurchases: state.dollarPurchases,
     dollarSpends: state.dollarSpends,
@@ -1329,6 +1393,14 @@ function getDiscount20Price(price) {
   return roundCurrency((Number(price) || 0) * 0.8);
 }
 
+function isCustomPaymentMethod(methodKey) {
+  return methodKey === "Personalizado" || methodKey === "Personalizado2";
+}
+
+function isInstallmentPaymentMethod(methodKey) {
+  return methodKey === "Personalizado2";
+}
+
 function syncSaleUnitPrice() {
   const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
   if (!perfume) {
@@ -1336,12 +1408,30 @@ function syncSaleUnitPrice() {
     return;
   }
 
-  refs.saleUnitPriceInput.value = getPaymentNet(perfume.price, refs.saleForm.paymentMethod.value);
+  const method = refs.saleForm.paymentMethod.value;
+  refs.saleUnitPriceInput.readOnly = !isCustomPaymentMethod(method);
+  refs.saleUnitPriceInput.value = getPaymentNet(perfume.price, method);
+}
+
+function syncSalePaymentFields(resetDueDate = false) {
+  const isInstallment = isInstallmentPaymentMethod(refs.saleForm.paymentMethod.value);
+  refs.saleInstallmentFields.hidden = !isInstallment;
+
+  if (!isInstallment) {
+    refs.saleFirstPaymentInput.value = "";
+    refs.saleSecondDueDateInput.value = "";
+    return;
+  }
+
+  if (resetDueDate || !refs.saleSecondDueDateInput.value) {
+    refs.saleSecondDueDateInput.value = addMonthsToDate(refs.saleForm.date.value, 1);
+  }
 }
 
 function addSaleDraftItem() {
   const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
   const quantity = Number(refs.saleQtyInput.value) || 0;
+  const unitNet = Number(refs.saleUnitPriceInput.value) || 0;
 
   if (!perfume) {
     showError("Selecciona un perfume.");
@@ -1350,6 +1440,11 @@ function addSaleDraftItem() {
 
   if (quantity <= 0) {
     showError("La cantidad debe ser mayor a 0.");
+    return;
+  }
+
+  if (unitNet < 0) {
+    showError("El precio personalizado no puede ser negativo.");
     return;
   }
 
@@ -1366,7 +1461,7 @@ function addSaleDraftItem() {
     qty: quantity,
     basePrice: perfume.price,
     paymentMethod: refs.saleForm.paymentMethod.value,
-    unitNet: getPaymentNet(perfume.price, refs.saleForm.paymentMethod.value),
+    unitNet,
     tiendanubeProductId: perfume.tiendanubeProductId || "",
     tiendanubeVariantId: perfume.tiendanubeVariantId || "",
     tiendanubeSku: perfume.tiendanubeSku || "",
@@ -1412,11 +1507,51 @@ function renderSaleDraft() {
 
   const gross = state.draftSaleItems.reduce((sum, item) => sum + item.basePrice * item.qty, 0);
   const net = state.draftSaleItems.reduce((sum, item) => sum + item.unitNet * item.qty, 0);
+  const paymentPreview = buildSalePaymentsPreview(net);
+  const paidNow = getPaymentsPaidTotal(paymentPreview);
+  const pending = Math.max(0, net - paidNow);
 
   refs.saleSummary.innerHTML = `
     <div>Precio de lista: <strong>${formatCurrency(gross)}</strong></div>
-    <div>Total que realmente cobras: <strong>${formatCurrency(net)}</strong></div>
+    <div>Total pactado: <strong>${formatCurrency(net)}</strong></div>
+    <div>Se suma ahora al banco: <strong>${formatCurrency(paidNow)}</strong></div>
+    ${pending > 0 ? `<div>Queda pendiente: <strong>${formatCurrency(pending)}</strong></div>` : ""}
   `;
+}
+
+function buildSalePaymentsPreview(agreedTotal) {
+  const date = refs.saleForm.date.value || new Date().toISOString().slice(0, 10);
+  if (!isInstallmentPaymentMethod(refs.saleForm.paymentMethod.value)) {
+    return [{
+      id: crypto.randomUUID(),
+      label: "Pago completo",
+      amount: agreedTotal,
+      dueDate: date,
+      paidDate: date,
+      paid: true,
+    }];
+  }
+
+  const firstPayment = Math.min(agreedTotal, Math.max(0, Number(refs.saleFirstPaymentInput.value) || agreedTotal / 2));
+  const secondPayment = Math.max(0, agreedTotal - firstPayment);
+  return [
+    {
+      id: crypto.randomUUID(),
+      label: "Cuota 1",
+      amount: roundCurrency(firstPayment),
+      dueDate: date,
+      paidDate: date,
+      paid: firstPayment > 0,
+    },
+    {
+      id: crypto.randomUUID(),
+      label: "Cuota 2",
+      amount: roundCurrency(secondPayment),
+      dueDate: refs.saleSecondDueDateInput.value || addMonthsToDate(date, 1),
+      paidDate: "",
+      paid: false,
+    },
+  ];
 }
 
 function handleSaleSubmit(event) {
@@ -1449,9 +1584,11 @@ function handleSaleSubmit(event) {
     channel: formData.get("channel").trim(),
     items: state.draftSaleItems.map((item) => ({ ...item })),
     grossTotal: state.draftSaleItems.reduce((sum, item) => sum + item.basePrice * item.qty, 0),
-    total: state.draftSaleItems.reduce((sum, item) => sum + item.unitNet * item.qty, 0),
+    agreedTotal: state.draftSaleItems.reduce((sum, item) => sum + item.unitNet * item.qty, 0),
     createdAt: new Date().toISOString(),
   };
+  sale.payments = buildSalePaymentsPreview(sale.agreedTotal);
+  sale.total = getPaymentsPaidTotal(sale.payments);
 
   sale.items.forEach((item) => {
     const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
@@ -1464,6 +1601,7 @@ function handleSaleSubmit(event) {
   state.draftSaleItems = [];
   refs.saleForm.reset();
   seedDefaultDates();
+  syncSaleUnitPrice();
   saveState();
   renderAll();
   showNotification("Venta registrada correctamente.");
@@ -1549,6 +1687,51 @@ async function deleteExpense(expenseId) {
   saveState();
   renderAll();
   showNotification("Gasto eliminado correctamente.");
+}
+
+async function deleteDollarPurchase(itemId) {
+  const confirmed = await confirmAction("Esta compra de dolares se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.dollarPurchases = state.dollarPurchases.filter((item) => item.id !== itemId);
+  saveState();
+  renderAll();
+  showNotification("Compra de dolares eliminada correctamente.");
+}
+
+async function deleteDollarSpend(itemId) {
+  const confirmed = await confirmAction("Este gasto en dolares se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.dollarSpends = state.dollarSpends.filter((item) => item.id !== itemId);
+  saveState();
+  renderAll();
+  showNotification("Gasto en dolares eliminado correctamente.");
+}
+
+async function deleteBankIncome(itemId) {
+  const confirmed = await confirmAction("Este ingreso del banco se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.bankIncomes = state.bankIncomes.filter((item) => item.id !== itemId);
+  saveState();
+  renderAll();
+  showNotification("Ingreso del banco eliminado correctamente.");
+}
+
+async function deleteSubscription(itemId) {
+  const confirmed = await confirmAction("Esta suscripcion se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.subscriptions = state.subscriptions.filter((item) => item.id !== itemId);
+  saveState();
+  renderAll();
+  showNotification("Suscripcion eliminada correctamente.");
+}
+
+async function deleteWithdrawal(itemId) {
+  const confirmed = await confirmAction("Este retiro se va a borrar. Quieres seguir?");
+  if (!confirmed) return;
+  state.withdrawals = state.withdrawals.filter((item) => item.id !== itemId);
+  saveState();
+  renderAll();
+  showNotification("Retiro eliminado correctamente.");
 }
 
 function renderExpenseDraft() {
@@ -1642,6 +1825,30 @@ function handleSubscriptionSubmit(event) {
   showNotification("Suscripcion registrada correctamente.");
 }
 
+function handleBankIncomeSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(refs.bankIncomeForm);
+  const amount = Number(formData.get("amount")) || 0;
+  if (amount <= 0) {
+    showError("Carga un ingreso valido.");
+    return;
+  }
+
+  state.bankIncomes.unshift({
+    id: crypto.randomUUID(),
+    date: formData.get("date"),
+    detail: formData.get("detail").trim(),
+    amount,
+    createdAt: new Date().toISOString(),
+  });
+
+  refs.bankIncomeForm.reset();
+  seedDefaultDates();
+  saveState();
+  renderAll();
+  showNotification("Ingreso del banco registrado correctamente.");
+}
+
 function handleWithdrawalSubmit(event) {
   event.preventDefault();
   const formData = new FormData(refs.withdrawalForm);
@@ -1679,16 +1886,20 @@ function renderDollarTable() {
   refs.dollarTableBody.innerHTML = "";
   const movements = [
     ...state.dollarPurchases.map((item) => ({
+      id: item.id,
       date: item.date,
       type: "Compra",
+      source: "purchase",
       pesosAmount: item.pesosAmount,
       dollarPrice: item.dollarPrice,
       dollarsAmount: item.dollarsAmount,
       detail: item.notes || "",
     })),
     ...state.dollarSpends.map((item) => ({
+      id: item.id,
       date: item.date,
       type: "Gasto USD",
+      source: "spend",
       pesosAmount: "",
       dollarPrice: "",
       dollarsAmount: item.dollarsAmount,
@@ -1698,7 +1909,7 @@ function renderDollarTable() {
 
   if (!movements.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="6">Todavia no registraste movimientos en dolares.</td>`;
+    row.innerHTML = `<td colspan="7">Todavia no registraste movimientos en dolares.</td>`;
     refs.dollarTableBody.appendChild(row);
     return;
   }
@@ -1712,7 +1923,15 @@ function renderDollarTable() {
       <td data-label="Precio dolar">${movement.dollarPrice === "" ? "-" : formatCurrency(movement.dollarPrice)}</td>
       <td data-label="Dolares">${roundCurrency(movement.dollarsAmount)}</td>
       <td data-label="Detalle">${escapeHtml(movement.detail || "-")}</td>
+      <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
     `;
+    row.querySelector("button").addEventListener("click", () => {
+      if (movement.source === "purchase") {
+        deleteDollarPurchase(movement.id);
+      } else {
+        deleteDollarSpend(movement.id);
+      }
+    });
     refs.dollarTableBody.appendChild(row);
   });
 }
@@ -1720,13 +1939,14 @@ function renderDollarTable() {
 function renderBankMovementsTable() {
   refs.bankMovementsTableBody.innerHTML = "";
   const movements = [
-    ...state.subscriptions.map((item) => ({ ...item, type: "Suscripcion" })),
-    ...state.withdrawals.map((item) => ({ ...item, type: "Retiro" })),
+    ...state.subscriptions.map((item) => ({ ...item, type: "Suscripcion", source: "subscription" })),
+    ...state.bankIncomes.map((item) => ({ ...item, type: "Ingreso banco", source: "income" })),
+    ...state.withdrawals.map((item) => ({ ...item, type: "Retiro", source: "withdrawal" })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   if (!movements.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="4">Todavia no registraste suscripciones o retiros.</td>`;
+    row.innerHTML = `<td colspan="5">Todavia no registraste movimientos en pesos.</td>`;
     refs.bankMovementsTableBody.appendChild(row);
     return;
   }
@@ -1738,7 +1958,17 @@ function renderBankMovementsTable() {
       <td data-label="Tipo">${escapeHtml(movement.type)}</td>
       <td data-label="Detalle">${escapeHtml(movement.detail || "-")}</td>
       <td data-label="Monto">${formatCurrency(movement.amount)}</td>
+      <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
     `;
+    row.querySelector("button").addEventListener("click", () => {
+      if (movement.source === "subscription") {
+        deleteSubscription(movement.id);
+      } else if (movement.source === "income") {
+        deleteBankIncome(movement.id);
+      } else {
+        deleteWithdrawal(movement.id);
+      }
+    });
     refs.bankMovementsTableBody.appendChild(row);
   });
 }
@@ -1850,7 +2080,7 @@ function renderSalesTable() {
 
   if (!state.sales.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="6">Todavia no registraste ventas.</td>`;
+    row.innerHTML = `<td colspan="7">Todavia no registraste ventas.</td>`;
     refs.salesTableBody.appendChild(row);
     return;
   }
@@ -1860,17 +2090,65 @@ function renderSalesTable() {
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .forEach((sale) => {
       const row = document.createElement("tr");
+      const remaining = getSaleRemaining(sale);
       row.innerHTML = `
         <td data-label="Fecha">${formatDate(sale.date)}</td>
         <td data-label="Cliente">${escapeHtml(sale.customer || "-")}</td>
         <td data-label="Items">${sale.items.map((item) => `${escapeHtml(item.name)} x${item.qty}`).join(", ")}</td>
         <td data-label="Metodo">${escapeHtml(getPaymentLabel(sale.paymentMethod))}</td>
-        <td data-label="Total neto">${formatCurrency(sale.total)}</td>
-        <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
+        <td data-label="Total neto">
+          <div><strong>${formatCurrency(getSaleAgreedTotal(sale))}</strong></div>
+          ${remaining > 0 ? `<div class="muted-cell">Pendiente: ${formatCurrency(remaining)}</div>` : ""}
+        </td>
+        <td data-label="Pagado">${renderSalePaymentsCell(sale)}</td>
+        <td data-label="Accion">
+          <div class="table-actions">
+            ${getNextPendingPayment(sale) ? `<button type="button" class="text-button pay-installment-button">Marcar cuota pagada</button>` : ""}
+            <button type="button" class="danger-text-button delete-sale-button">Borrar</button>
+          </div>
+        </td>
       `;
-      row.querySelector("button").addEventListener("click", () => deleteSale(sale.id));
+      row.querySelector(".delete-sale-button").addEventListener("click", () => deleteSale(sale.id));
+      row.querySelector(".pay-installment-button")?.addEventListener("click", () => markNextInstallmentPaid(sale.id));
       refs.salesTableBody.appendChild(row);
     });
+}
+
+function renderSalePaymentsCell(sale) {
+  return getSalePayments(sale).map((payment) => {
+    const status = payment.paid
+      ? `Pagada ${formatDate(payment.paidDate || sale.date)}`
+      : `Vence ${formatDate(payment.dueDate)}`;
+    return `
+      <div class="payment-line">
+        <strong>${escapeHtml(payment.label)}</strong>
+        <span>${formatCurrency(payment.amount)} - ${escapeHtml(status)}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function getNextPendingPayment(sale) {
+  return getSalePayments(sale).find((payment) => !payment.paid && payment.amount > 0);
+}
+
+function markNextInstallmentPaid(saleId) {
+  const sale = state.sales.find((item) => item.id === saleId);
+  if (!sale) return;
+
+  const payment = getNextPendingPayment(sale);
+  if (!payment) {
+    showNotification("Esa venta no tiene cuotas pendientes.");
+    return;
+  }
+
+  payment.paid = true;
+  payment.paidDate = new Date().toISOString().slice(0, 10);
+  sale.payments = getSalePayments(sale);
+  sale.total = getPaymentsPaidTotal(sale.payments);
+  saveState();
+  renderAll();
+  showNotification("Cuota marcada como pagada.");
 }
 
 function renderExpensesTable() {
@@ -1910,6 +2188,7 @@ function renderDashboard() {
     { label: "Total gastado", value: formatCurrency(summary.totalSpent) },
     { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
     { label: "Suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Ingresos banco", value: formatCurrency(summary.totalBankIncomes) },
     { label: "Retiros", value: formatCurrency(summary.totalWithdrawals) },
     { label: "Balance", value: formatCurrency(summary.balance) },
     { label: "Cantidad total en stock", value: String(summary.totalStockUnits) },
@@ -1932,6 +2211,7 @@ function renderDashboard() {
     { label: "Total dolares gastados", value: `${roundCurrency(summary.totalDollarSpentUnits)} USD` },
     { label: "Pesos usados en dolares", value: formatCurrency(summary.totalDollarPurchasePesos) },
     { label: "Total suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Ingresos del banco", value: formatCurrency(summary.totalBankIncomes) },
     { label: "Total retiros", value: formatCurrency(summary.totalWithdrawals) },
     { label: "Banco neto", value: formatCurrency(summary.bankPesos) },
   ];
@@ -2021,6 +2301,7 @@ function exportData() {
       sales: state.sales,
       expenses: state.expenses,
       subscriptions: state.subscriptions,
+      bankIncomes: state.bankIncomes,
       withdrawals: state.withdrawals,
       dollarPurchases: state.dollarPurchases,
       dollarSpends: state.dollarSpends,
@@ -2048,6 +2329,7 @@ function exportExcelWorkbook() {
           ["Total gastado", getDashboardSummary().totalSpent],
           ["Inversion inicial", getDashboardSummary().initialInvestment],
           ["Suscripciones", getDashboardSummary().totalSubscriptions],
+          ["Ingresos del banco", getDashboardSummary().totalBankIncomes],
           ["Retiros", getDashboardSummary().totalWithdrawals],
           ["Pesos usados en dolares", getDashboardSummary().totalDollarPurchasePesos],
           ["Pesos en banco", getDashboardSummary().bankPesos],
@@ -2085,7 +2367,7 @@ function exportExcelWorkbook() {
       {
         name: "Ventas",
         rows: [
-          ["Fecha", "Cliente", "Metodo", "Producto", "Cantidad", "Neto unitario", "Total"],
+          ["Fecha", "Cliente", "Metodo", "Producto", "Cantidad", "Neto unitario", "Total pactado", "Pagado", "Pendiente", "Proximo vencimiento"],
           ...state.sales.flatMap((sale) =>
             sale.items.map((item, index) => [
               index === 0 ? sale.date : "",
@@ -2094,7 +2376,10 @@ function exportExcelWorkbook() {
               item.name,
               item.qty,
               item.unitNet || item.basePrice || 0,
+              index === 0 ? getSaleAgreedTotal(sale) : "",
               index === 0 ? sale.total : "",
+              index === 0 ? getSaleRemaining(sale) : "",
+              index === 0 ? (getNextPendingPayment(sale)?.dueDate || "") : "",
             ])
           ),
         ],
@@ -2113,6 +2398,7 @@ function exportExcelWorkbook() {
           ...state.dollarPurchases.map((item) => [item.date, "Compra USD", item.pesosAmount, item.dollarPrice, item.dollarsAmount, item.notes]),
           ...state.dollarSpends.map((item) => [item.date, "Gasto USD", "", "", item.dollarsAmount, item.detail]),
           ...state.subscriptions.map((item) => [item.date, "Suscripcion", item.amount, "", "", item.detail]),
+          ...state.bankIncomes.map((item) => [item.date, "Ingreso banco", item.amount, "", "", item.detail]),
           ...state.withdrawals.map((item) => [item.date, "Retiro", item.amount, "", "", item.detail]),
         ],
       },
@@ -2157,6 +2443,7 @@ async function clearAllData() {
   state.sales = [];
   state.expenses = [];
   state.subscriptions = [];
+  state.bankIncomes = [];
   state.withdrawals = [];
   state.dollarPurchases = [];
   state.dollarSpends = [];
@@ -2216,6 +2503,10 @@ async function loadDemoData() {
 
   state.subscriptions = [
     { id: crypto.randomUUID(), date: "2026-04-10", detail: "Canva Pro", amount: 15999, createdAt: new Date().toISOString() },
+  ];
+
+  state.bankIncomes = [
+    { id: crypto.randomUUID(), date: "2026-04-30", detail: "Rendimiento banco", amount: 1250, createdAt: new Date().toISOString() },
   ];
 
   state.withdrawals = [
@@ -2296,6 +2587,7 @@ function renderSummaryDashboard() {
     { label: "Total gastado", value: formatCurrency(summary.totalSpent) },
     { label: "Inversion inicial", value: formatCurrency(summary.initialInvestment) },
     { label: "Suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Ingresos banco", value: formatCurrency(summary.totalBankIncomes) },
     { label: "Retiros", value: formatCurrency(summary.totalWithdrawals) },
     { label: "Balance", value: formatCurrency(summary.balance) },
     { label: "Cantidad total en stock", value: String(summary.totalStockUnits) },
@@ -2318,6 +2610,7 @@ function renderSummaryDashboard() {
     { label: "Total dolares gastados", value: `${roundCurrency(summary.totalDollarSpentUnits)} USD` },
     { label: "Pesos usados en dolares", value: formatCurrency(summary.totalDollarPurchasePesos) },
     { label: "Total suscripciones", value: formatCurrency(summary.totalSubscriptions) },
+    { label: "Ingresos del banco", value: formatCurrency(summary.totalBankIncomes) },
     { label: "Total retiros", value: formatCurrency(summary.totalWithdrawals) },
     { label: "Banco neto", value: formatCurrency(summary.bankPesos) },
   ];
@@ -2546,6 +2839,7 @@ function getDashboardSummary() {
   const totalSpent = state.expenses.reduce((sum, item) => sum + (item.amount || 0), 0);
   const initialInvestment = state.history.initialInvestment;
   const totalSubscriptions = state.subscriptions.reduce((sum, item) => sum + (item.amount || 0), 0) + state.history.subscriptionsAmount;
+  const totalBankIncomes = state.bankIncomes.reduce((sum, item) => sum + (item.amount || 0), 0) + state.history.bankIncomesAmount;
   const totalWithdrawals = state.withdrawals.reduce((sum, item) => sum + (item.amount || 0), 0) + state.history.withdrawalsAmount;
   const totalDollarPurchasePesos = state.dollarPurchases.reduce((sum, item) => sum + (item.pesosAmount || 0), 0) + state.history.dollarPurchasePesos;
   const totalDollarBoughtUnits = state.dollarPurchases.reduce((sum, item) => sum + (item.dollarsAmount || 0), 0) + state.history.dollarBoughtUnits;
@@ -2555,7 +2849,7 @@ function getDashboardSummary() {
     (sum, sale) => sum + sale.items.reduce((itemSum, item) => itemSum + (item.qty || 0), 0),
     0
   );
-  const bankPesos = totalSold + state.history.salesAmount + initialInvestment - totalSpent - state.history.expensesAmount - totalSubscriptions - totalWithdrawals - totalDollarPurchasePesos;
+  const bankPesos = totalSold + state.history.salesAmount + initialInvestment + totalBankIncomes - totalSpent - state.history.expensesAmount - totalSubscriptions - totalWithdrawals - totalDollarPurchasePesos;
   const bankDollars = totalDollarBoughtUnits - totalDollarSpentUnits;
 
   return {
@@ -2563,6 +2857,7 @@ function getDashboardSummary() {
     totalSpent: totalSpent + state.history.expensesAmount,
     initialInvestment,
     totalSubscriptions,
+    totalBankIncomes,
     totalWithdrawals,
     totalDollarPurchasePesos,
     totalDollarBoughtUnits,
@@ -2572,8 +2867,37 @@ function getDashboardSummary() {
     totalBoughtUnits: state.history.boughtUnits,
     bankPesos,
     bankDollars,
-    balance: totalSold + state.history.salesAmount - totalSpent - state.history.expensesAmount,
+    balance: totalSold + state.history.salesAmount + totalBankIncomes - totalSpent - state.history.expensesAmount,
   };
+}
+
+function getPaymentsPaidTotal(payments = []) {
+  return roundCurrency(payments.reduce((sum, payment) => (
+    payment.paid ? sum + (Number(payment.amount) || 0) : sum
+  ), 0));
+}
+
+function getSalePayments(sale) {
+  if (Array.isArray(sale.payments) && sale.payments.length) return sale.payments;
+  return normalizeSalePayments(sale, getSaleAgreedTotal(sale), sale.date || new Date().toISOString().slice(0, 10));
+}
+
+function getSaleAgreedTotal(sale) {
+  return Number(sale.agreedTotal) || Number(sale.total) || 0;
+}
+
+function getSaleRemaining(sale) {
+  return roundCurrency(Math.max(0, getSaleAgreedTotal(sale) - (Number(sale.total) || 0)));
+}
+
+function addMonthsToDate(value, months) {
+  const base = value ? new Date(`${value}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return new Date().toISOString().slice(0, 10);
+  const day = base.getDate();
+  const result = new Date(base);
+  result.setMonth(result.getMonth() + months);
+  if (result.getDate() !== day) result.setDate(0);
+  return result.toISOString().slice(0, 10);
 }
 
 function getPaymentLabel(methodKey) {
