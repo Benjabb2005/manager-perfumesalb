@@ -1738,6 +1738,8 @@ function handleExpenseSubmit(event) {
     revertExpenseInventory(existingExpense);
   }
 
+  syncExpenseItemsWithCatalog(expense.items);
+
   if (expense.deliveryStatus === "delivered" && expense.items.length) {
     applyExpenseInventory(expense);
   }
@@ -1779,43 +1781,7 @@ function applyExpenseInventory(expense) {
   if (!Array.isArray(expense.items) || expense.inventoryApplied) return;
 
   expense.items.forEach((item) => {
-    let perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
-    if (!perfume) {
-      perfume = state.perfumes.find((entry) => (
-        normalizeText(entry.name) === normalizeText(item.name)
-        && normalizeText(entry.brand) === normalizeText(item.brand)
-      ));
-    }
-
-    if (!perfume) {
-      perfume = {
-        id: crypto.randomUUID(),
-        name: item.name,
-        brand: item.brand || "",
-        ml: item.ml || 0,
-        cost: item.unitCost || 0,
-        price: item.salePrice || calculateSuggestedPrice(item.unitCost || 0),
-        stock: 0,
-        tiendanubeProductId: "",
-        tiendanubeVariantId: "",
-        tiendanubeSku: "",
-        tiendanubeSyncedAt: "",
-        gender: "Sin clasificar",
-        scentProfile: "Sin clasificar",
-        scentTags: [],
-        infoSource: getFragranticaSearchUrl(item),
-        infoSourceTitle: "Buscar en Fragrantica",
-        infoUpdatedAt: "",
-        createdAt: new Date().toISOString(),
-      };
-      state.perfumes.push(perfume);
-    }
-
-    item.perfumeId = perfume.id;
-    perfume.cost = item.unitCost || perfume.cost || 0;
-    if (item.salePrice > 0) {
-      perfume.price = item.salePrice;
-    }
+    const perfume = upsertExpenseCatalogItem(item, { updateDetails: false });
     perfume.stock = (Number(perfume.stock) || 0) + (Number(item.qty) || 0);
   });
 
@@ -1835,6 +1801,63 @@ function revertExpenseInventory(expense) {
 
   expense.deliveryStatus = "pending";
   expense.inventoryApplied = false;
+}
+
+function syncExpenseItemsWithCatalog(items = []) {
+  items.forEach(upsertExpenseCatalogItem);
+}
+
+function upsertExpenseCatalogItem(item, { updateDetails = true } = {}) {
+  let perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
+  if (!perfume) {
+    perfume = state.perfumes.find((entry) => (
+      normalizeText(entry.name) === normalizeText(item.name)
+      && normalizeText(entry.brand) === normalizeText(item.brand)
+    ));
+  }
+
+  if (!perfume) {
+    perfume = {
+      id: crypto.randomUUID(),
+      name: item.name,
+      brand: item.brand || "",
+      ml: item.ml || 0,
+      cost: item.unitCost || 0,
+      price: item.salePrice || calculateSuggestedPrice(item.unitCost || 0),
+      stock: 0,
+      tiendanubeProductId: "",
+      tiendanubeVariantId: "",
+      tiendanubeSku: "",
+      tiendanubeSyncedAt: "",
+      gender: "Sin clasificar",
+      scentProfile: "Sin clasificar",
+      scentTags: [],
+      infoSource: getFragranticaSearchUrl(item),
+      infoSourceTitle: "Buscar en Fragrantica",
+      infoUpdatedAt: "",
+      createdAt: new Date().toISOString(),
+    };
+    state.perfumes.push(perfume);
+  }
+
+  item.perfumeId = perfume.id;
+  if (!updateDetails) {
+    return perfume;
+  }
+
+  perfume.name = item.name || perfume.name;
+  perfume.brand = item.brand || perfume.brand || "";
+  perfume.ml = item.ml || perfume.ml || 0;
+  perfume.cost = item.unitCost || perfume.cost || 0;
+  if (item.salePrice > 0) {
+    perfume.price = item.salePrice;
+  }
+  if (!perfume.infoSource) {
+    perfume.infoSource = getFragranticaSearchUrl(perfume);
+    perfume.infoSourceTitle = "Buscar en Fragrantica";
+  }
+
+  return perfume;
 }
 
 async function toggleExpenseDelivery(expenseId) {
@@ -1971,7 +1994,7 @@ function addExpenseDraftItem() {
     return;
   }
 
-  state.draftExpenseItems.push({
+  const expenseItem = {
     id: crypto.randomUUID(),
     perfumeId: perfume?.id || "",
     name,
@@ -1980,7 +2003,10 @@ function addExpenseDraftItem() {
     qty,
     unitCost,
     salePrice,
-  });
+  };
+
+  upsertExpenseCatalogItem(expenseItem);
+  state.draftExpenseItems.push(expenseItem);
 
   refs.expenseProductSelect.value = "";
   refs.expenseNewProductInput.value = "";
@@ -1988,8 +2014,11 @@ function addExpenseDraftItem() {
   refs.expenseQtyInput.value = 1;
   refs.expenseUnitCostInput.value = 0;
   refs.expenseSalePriceInput.value = 0;
+  saveState();
+  populateProductSelects();
+  renderPriceCalculator();
   renderExpenseDraft();
-  showNotification("Perfume agregado a la compra.");
+  showNotification("Perfume agregado a la compra y actualizado en precios.");
 }
 
 function removeExpenseDraftItem(itemId) {

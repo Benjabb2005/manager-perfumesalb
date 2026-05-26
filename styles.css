@@ -555,6 +555,34 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 }
 
+.expense-layout {
+  grid-template-columns: 1fr;
+}
+
+.expense-form-grid {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  align-items: end;
+}
+
+.expense-item-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 1fr) minmax(130px, 0.9fr) minmax(82px, 0.55fr) minmax(88px, 0.55fr) minmax(130px, 0.85fr) minmax(130px, 0.85fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.expense-item-grid label {
+  min-width: 0;
+}
+
+.bank-layout {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.bank-history {
+  grid-column: 1 / -1;
+}
+
 .dashboard-grid {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
@@ -822,6 +850,76 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 860px;
+}
+
+.fit-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.fit-table th,
+.fit-table td {
+  padding: 12px 10px;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  vertical-align: top;
+}
+
+.bank-dollar-table th:nth-child(1),
+.bank-dollar-table td:nth-child(1),
+.bank-peso-table th:nth-child(1),
+.bank-peso-table td:nth-child(1) {
+  width: 13%;
+}
+
+.bank-dollar-table th:nth-child(2),
+.bank-dollar-table td:nth-child(2),
+.bank-peso-table th:nth-child(2),
+.bank-peso-table td:nth-child(2) {
+  width: 14%;
+}
+
+.bank-dollar-table th:nth-child(3),
+.bank-dollar-table td:nth-child(3),
+.bank-dollar-table th:nth-child(4),
+.bank-dollar-table td:nth-child(4),
+.bank-dollar-table th:nth-child(5),
+.bank-dollar-table td:nth-child(5),
+.bank-peso-table th:nth-child(4),
+.bank-peso-table td:nth-child(4) {
+  width: 13%;
+}
+
+.bank-dollar-table th:nth-child(7),
+.bank-dollar-table td:nth-child(7),
+.bank-peso-table th:nth-child(5),
+.bank-peso-table td:nth-child(5) {
+  width: 13%;
+}
+
+.expense-table th:nth-child(1),
+.expense-table td:nth-child(1) {
+  width: 10%;
+}
+
+.expense-table th:nth-child(3),
+.expense-table td:nth-child(3) {
+  width: 11%;
+}
+
+.expense-table th:nth-child(5),
+.expense-table td:nth-child(5) {
+  width: 10%;
+}
+
+.expense-table th:nth-child(6),
+.expense-table td:nth-child(6) {
+  width: 12%;
+}
+
+.expense-table th:nth-child(7),
+.expense-table td:nth-child(7) {
+  width: 20%;
 }
 
 th,
