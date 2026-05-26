@@ -516,6 +516,7 @@
               <h4>Nuevo gasto</h4>
             </div>
             <form id="orderForm" class="form-grid">
+              <input type="hidden" name="expenseId">
               <label>
                 Detalle
                 <input type="text" name="supplier" placeholder="Compra, envio, retiro, etc.">
@@ -537,12 +538,62 @@
                 Monto
                 <input type="number" name="amount" min="0" step="0.01" value="0" required>
               </label>
+              <label>
+                Envio
+                <input type="number" name="shippingAmount" min="0" step="0.01" value="0">
+              </label>
+              <div class="full-width inline-form">
+                <label>
+                  Perfume existente
+                  <select id="expenseProductSelect"></select>
+                </label>
+                <label>
+                  Perfume nuevo
+                  <input type="text" id="expenseNewProductInput" placeholder="Nombre si no esta cargado">
+                </label>
+                <label>
+                  Marca
+                  <input type="text" id="expenseBrandInput" placeholder="Marca">
+                </label>
+                <label>
+                  ML
+                  <input type="number" id="expenseMlInput" min="0" step="1" value="100">
+                </label>
+                <label>
+                  Cantidad
+                  <input type="number" id="expenseQtyInput" min="1" step="1" value="1">
+                </label>
+                <label>
+                  Costo unitario
+                  <input type="number" id="expenseUnitCostInput" min="0" step="0.01" value="0">
+                </label>
+                <label>
+                  Precio venta
+                  <input type="number" id="expenseSalePriceInput" min="0" step="0.01" value="0">
+                </label>
+              </div>
+              <div class="full-width">
+                <button type="button" class="secondary-button add-item-button" id="addExpenseItemBtn">Agregar perfume</button>
+              </div>
+              <div class="full-width">
+                <div class="mini-list" id="expenseItemsList"></div>
+              </div>
+              <label>
+                Estado
+                <select name="deliveryStatus">
+                  <option value="pending">No entregado</option>
+                  <option value="delivered">Entregado</option>
+                </select>
+              </label>
               <label class="full-width">
                 Notas
                 <textarea name="notes" rows="3" placeholder="Dato opcional"></textarea>
               </label>
               <div class="full-width totals-box" id="orderSummary"></div>
-              <button type="submit" class="primary-button">Guardar gasto</button>
+              <div class="full-width form-actions">
+                <button type="submit" class="primary-button" id="saveExpenseBtn">Guardar gasto</button>
+                <button type="button" class="ghost-button" id="cancelExpenseEditBtn" hidden>Cancelar edicion</button>
+              </div>
             </form>
           </article>
 
@@ -557,6 +608,8 @@
                     <th>Fecha</th>
                     <th>Detalle</th>
                     <th>Categoria</th>
+                    <th>Items</th>
+                    <th>Estado</th>
                     <th>Monto</th>
                     <th>Accion</th>
                   </tr>

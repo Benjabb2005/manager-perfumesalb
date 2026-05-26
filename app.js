@@ -67,6 +67,7 @@ const state = {
   dollarPurchases: [],
   dollarSpends: [],
   draftSaleItems: [],
+  draftExpenseItems: [],
   history: {
     salesAmount: 0,
     soldUnits: 0,
@@ -150,6 +151,17 @@ function cacheElements() {
   refs.salesTableBody = document.getElementById("salesTableBody");
 
   refs.orderForm = document.getElementById("orderForm");
+  refs.expenseProductSelect = document.getElementById("expenseProductSelect");
+  refs.expenseNewProductInput = document.getElementById("expenseNewProductInput");
+  refs.expenseBrandInput = document.getElementById("expenseBrandInput");
+  refs.expenseMlInput = document.getElementById("expenseMlInput");
+  refs.expenseQtyInput = document.getElementById("expenseQtyInput");
+  refs.expenseUnitCostInput = document.getElementById("expenseUnitCostInput");
+  refs.expenseSalePriceInput = document.getElementById("expenseSalePriceInput");
+  refs.addExpenseItemBtn = document.getElementById("addExpenseItemBtn");
+  refs.expenseItemsList = document.getElementById("expenseItemsList");
+  refs.saveExpenseBtn = document.getElementById("saveExpenseBtn");
+  refs.cancelExpenseEditBtn = document.getElementById("cancelExpenseEditBtn");
   refs.orderSummary = document.getElementById("orderSummary");
   refs.ordersTableBody = document.getElementById("ordersTableBody");
   refs.dollarPurchaseForm = document.getElementById("dollarPurchaseForm");
@@ -217,6 +229,10 @@ function bindEvents() {
   refs.saleForm.addEventListener("submit", handleSaleSubmit);
 
   refs.orderForm.addEventListener("submit", handleExpenseSubmit);
+  refs.orderForm.shippingAmount.addEventListener("input", renderExpenseDraft);
+  refs.expenseProductSelect.addEventListener("change", syncExpenseProductFields);
+  refs.addExpenseItemBtn.addEventListener("click", addExpenseDraftItem);
+  refs.cancelExpenseEditBtn.addEventListener("click", resetExpenseForm);
   refs.dollarPurchaseForm.addEventListener("submit", handleDollarPurchaseSubmit);
   refs.dollarPurchaseForm.pesosAmount.addEventListener("input", syncDollarPurchaseAmount);
   refs.dollarPurchaseForm.dollarPrice.addEventListener("input", syncDollarPurchaseAmount);
@@ -669,6 +685,7 @@ function hydrateState(saved) {
   priceFormulaState.markdownAmount = normalized.priceFormula.markdownAmount;
   priceFormulaState.promoDiscountPercent = normalized.priceFormula.promoDiscountPercent;
   state.draftSaleItems = [];
+  state.draftExpenseItems = [];
 }
 
 function normalizeState(saved = {}) {
@@ -767,10 +784,12 @@ function normalizeSalePayments(sale, agreedTotal, today) {
 }
 
 function normalizeExpenses(saved = {}) {
-  if (Array.isArray(saved.expenses)) return saved.expenses;
+  if (Array.isArray(saved.expenses)) {
+    return saved.expenses.map(normalizeExpense);
+  }
   if (!Array.isArray(saved.orders)) return [];
 
-  return saved.orders.map((item) => ({
+  return saved.orders.map((item) => normalizeExpense({
     id: item.id || crypto.randomUUID(),
     supplier: item.supplier || "Importado",
     category: "Encargo",
@@ -779,6 +798,35 @@ function normalizeExpenses(saved = {}) {
     notes: item.items?.map((entry) => `${entry.name} x${entry.qty}`).join(", ") || "",
     createdAt: item.createdAt || new Date().toISOString(),
   }));
+}
+
+function normalizeExpense(expense = {}) {
+  return {
+    id: expense.id || crypto.randomUUID(),
+    supplier: expense.supplier || "",
+    category: expense.category || "Otro",
+    date: expense.date || new Date().toISOString().slice(0, 10),
+    amount: Number(expense.amount) || 0,
+    shippingAmount: Number(expense.shippingAmount) || 0,
+    notes: expense.notes || "",
+    items: Array.isArray(expense.items) ? expense.items.map(normalizeExpenseItem) : [],
+    deliveryStatus: expense.deliveryStatus || (expense.delivered ? "delivered" : "pending"),
+    inventoryApplied: Boolean(expense.inventoryApplied),
+    createdAt: expense.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeExpenseItem(item = {}) {
+  return {
+    id: item.id || crypto.randomUUID(),
+    perfumeId: item.perfumeId || "",
+    name: item.name || "Sin nombre",
+    brand: item.brand || "",
+    ml: Number(item.ml) || 0,
+    qty: Number(item.qty) || 1,
+    unitCost: Number(item.unitCost) || Number(item.cost) || 0,
+    salePrice: Number(item.salePrice) || Number(item.price) || 0,
+  };
 }
 
 function normalizeHistory(history = {}) {
@@ -1377,7 +1425,9 @@ function populateProductSelects() {
     .join("");
 
   refs.saleProductSelect.innerHTML = `<option value="">Selecciona un perfume</option>${perfumeOptions}`;
+  refs.expenseProductSelect.innerHTML = `<option value="">Perfume nuevo o sin seleccionar</option>${perfumeOptions}`;
   syncSaleUnitPrice();
+  syncExpenseProductFields();
 }
 
 function getPaymentNet(price, methodKey) {
@@ -1635,9 +1685,12 @@ async function deletePerfume(perfumeId) {
   const hasSales = state.sales.some((sale) =>
     sale.items.some((item) => item.perfumeId === perfumeId)
   );
+  const hasExpenses = state.expenses.some((expense) =>
+    expense.items?.some((item) => item.perfumeId === perfumeId)
+  );
 
-  if (hasSales) {
-    showError("No puedes borrar este perfume porque ya aparece en ventas guardadas.");
+  if (hasSales || hasExpenses) {
+    showError("No puedes borrar este perfume porque ya aparece en ventas o compras guardadas.");
     return;
   }
 
@@ -1646,6 +1699,7 @@ async function deletePerfume(perfumeId) {
 
   state.perfumes = state.perfumes.filter((item) => item.id !== perfumeId);
   state.draftSaleItems = state.draftSaleItems.filter((item) => item.perfumeId !== perfumeId);
+  state.draftExpenseItems = state.draftExpenseItems.filter((item) => item.perfumeId !== perfumeId);
   if (refs.perfumeForm.perfumeId.value === perfumeId) {
     resetPerfumeForm();
   }
@@ -1657,14 +1711,22 @@ async function deletePerfume(perfumeId) {
 function handleExpenseSubmit(event) {
   event.preventDefault();
   const formData = new FormData(refs.orderForm);
+  const expenseId = formData.get("expenseId");
+  const existingExpense = expenseId ? state.expenses.find((item) => item.id === expenseId) : null;
+  const purchaseItemsTotal = getDraftExpenseTotal();
+  const shippingAmount = Number(formData.get("shippingAmount")) || 0;
   const expense = {
-    id: crypto.randomUUID(),
+    id: expenseId || crypto.randomUUID(),
     supplier: formData.get("supplier").trim(),
     category: formData.get("category"),
     date: formData.get("date"),
-    amount: Number(formData.get("amount")) || 0,
+    amount: purchaseItemsTotal ? purchaseItemsTotal + shippingAmount : Number(formData.get("amount")) || 0,
+    shippingAmount,
     notes: formData.get("notes").trim(),
-    createdAt: new Date().toISOString(),
+    items: state.draftExpenseItems.map((item) => ({ ...item })),
+    deliveryStatus: formData.get("deliveryStatus"),
+    inventoryApplied: false,
+    createdAt: existingExpense?.createdAt || new Date().toISOString(),
   };
 
   if (!expense.amount || expense.amount <= 0) {
@@ -1672,21 +1734,128 @@ function handleExpenseSubmit(event) {
     return;
   }
 
-  state.expenses.unshift(expense);
-  refs.orderForm.reset();
-  seedDefaultDates();
+  if (existingExpense?.inventoryApplied) {
+    revertExpenseInventory(existingExpense);
+  }
+
+  if (expense.deliveryStatus === "delivered" && expense.items.length) {
+    applyExpenseInventory(expense);
+  }
+
+  if (expenseId) {
+    const index = state.expenses.findIndex((item) => item.id === expenseId);
+    if (index >= 0) {
+      state.expenses[index] = expense;
+    } else {
+      state.expenses.unshift(expense);
+    }
+  } else {
+    state.expenses.unshift(expense);
+  }
+
+  resetExpenseForm();
   saveState();
   renderAll();
-  showNotification("Gasto registrado correctamente.");
+  showNotification(expenseId ? "Gasto actualizado correctamente." : "Gasto registrado correctamente.");
 }
 
 async function deleteExpense(expenseId) {
   const confirmed = await confirmAction("Este gasto se va a borrar. Quieres seguir?");
   if (!confirmed) return;
+  const expense = state.expenses.find((item) => item.id === expenseId);
+  if (expense?.inventoryApplied) {
+    revertExpenseInventory(expense);
+  }
   state.expenses = state.expenses.filter((item) => item.id !== expenseId);
+  if (refs.orderForm.expenseId.value === expenseId) {
+    resetExpenseForm();
+  }
   saveState();
   renderAll();
   showNotification("Gasto eliminado correctamente.");
+}
+
+function applyExpenseInventory(expense) {
+  if (!Array.isArray(expense.items) || expense.inventoryApplied) return;
+
+  expense.items.forEach((item) => {
+    let perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
+    if (!perfume) {
+      perfume = state.perfumes.find((entry) => (
+        normalizeText(entry.name) === normalizeText(item.name)
+        && normalizeText(entry.brand) === normalizeText(item.brand)
+      ));
+    }
+
+    if (!perfume) {
+      perfume = {
+        id: crypto.randomUUID(),
+        name: item.name,
+        brand: item.brand || "",
+        ml: item.ml || 0,
+        cost: item.unitCost || 0,
+        price: item.salePrice || calculateSuggestedPrice(item.unitCost || 0),
+        stock: 0,
+        tiendanubeProductId: "",
+        tiendanubeVariantId: "",
+        tiendanubeSku: "",
+        tiendanubeSyncedAt: "",
+        gender: "Sin clasificar",
+        scentProfile: "Sin clasificar",
+        scentTags: [],
+        infoSource: getFragranticaSearchUrl(item),
+        infoSourceTitle: "Buscar en Fragrantica",
+        infoUpdatedAt: "",
+        createdAt: new Date().toISOString(),
+      };
+      state.perfumes.push(perfume);
+    }
+
+    item.perfumeId = perfume.id;
+    perfume.cost = item.unitCost || perfume.cost || 0;
+    if (item.salePrice > 0) {
+      perfume.price = item.salePrice;
+    }
+    perfume.stock = (Number(perfume.stock) || 0) + (Number(item.qty) || 0);
+  });
+
+  expense.deliveryStatus = "delivered";
+  expense.inventoryApplied = true;
+}
+
+function revertExpenseInventory(expense) {
+  if (!Array.isArray(expense.items) || !expense.inventoryApplied) return;
+
+  expense.items.forEach((item) => {
+    const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
+    if (perfume) {
+      perfume.stock = Math.max(0, (Number(perfume.stock) || 0) - (Number(item.qty) || 0));
+    }
+  });
+
+  expense.deliveryStatus = "pending";
+  expense.inventoryApplied = false;
+}
+
+async function toggleExpenseDelivery(expenseId) {
+  const expense = state.expenses.find((item) => item.id === expenseId);
+  if (!expense?.items?.length) {
+    showError("Este gasto no tiene perfumes cargados.");
+    return;
+  }
+
+  if (expense.inventoryApplied) {
+    const confirmed = await confirmAction("Esta compra va a volver a no entregada y se va a descontar del stock. Quieres seguir?");
+    if (!confirmed) return;
+    revertExpenseInventory(expense);
+    showNotification("Compra marcada como no entregada.");
+  } else {
+    applyExpenseInventory(expense);
+    showNotification("Compra marcada como entregada y stock actualizado.");
+  }
+
+  saveState();
+  renderAll();
 }
 
 async function deleteDollarPurchase(itemId) {
@@ -1735,10 +1904,135 @@ async function deleteWithdrawal(itemId) {
 }
 
 function renderExpenseDraft() {
+  refs.expenseItemsList.innerHTML = "";
+
+  if (!state.draftExpenseItems.length) {
+    refs.expenseItemsList.appendChild(buildEmptyState("Agrega perfumes si este gasto es una compra de stock."));
+  } else {
+    state.draftExpenseItems.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "mini-item";
+      row.innerHTML = `
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <div>${item.qty} x ${formatCurrency(item.unitCost)} · Venta: ${formatCurrency(item.salePrice)}</div>
+        </div>
+        <button type="button" class="text-button">Quitar</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => removeExpenseDraftItem(item.id));
+      refs.expenseItemsList.appendChild(row);
+    });
+  }
+
+  const itemsTotal = getDraftExpenseTotal();
+  const shippingAmount = Number(refs.orderForm.shippingAmount.value) || 0;
+  if (itemsTotal > 0) {
+    refs.orderForm.amount.value = roundCurrency(itemsTotal + shippingAmount);
+  }
+
   refs.orderSummary.innerHTML = `
-    <div>Puedes cargar cualquier gasto o encargo manualmente.</div>
-    <div>Ese monto se suma a tu total gastado.</div>
+    <div>Puedes cargar un gasto simple o una compra de perfumes.</div>
+    <div>Total de perfumes: <strong>${formatCurrency(itemsTotal)}</strong></div>
+    <div>Envio: <strong>${formatCurrency(shippingAmount)}</strong></div>
+    <div>Total del gasto: <strong>${formatCurrency(itemsTotal + shippingAmount)}</strong></div>
+    <div>El stock se suma solo cuando el gasto queda como entregado.</div>
   `;
+}
+
+function syncExpenseProductFields() {
+  const perfume = state.perfumes.find((item) => item.id === refs.expenseProductSelect.value);
+  if (!perfume) {
+    refs.expenseNewProductInput.disabled = false;
+    return;
+  }
+
+  refs.expenseNewProductInput.value = "";
+  refs.expenseNewProductInput.disabled = true;
+  refs.expenseBrandInput.value = perfume.brand || "";
+  refs.expenseMlInput.value = perfume.ml || 0;
+  refs.expenseUnitCostInput.value = perfume.cost || 0;
+  refs.expenseSalePriceInput.value = perfume.price || 0;
+}
+
+function addExpenseDraftItem() {
+  const perfume = state.perfumes.find((item) => item.id === refs.expenseProductSelect.value);
+  const name = perfume?.name || refs.expenseNewProductInput.value.trim();
+  const qty = Number(refs.expenseQtyInput.value) || 0;
+  const unitCost = Number(refs.expenseUnitCostInput.value) || 0;
+  const salePrice = Number(refs.expenseSalePriceInput.value) || 0;
+
+  if (!name) {
+    showError("Selecciona un perfume o escribe uno nuevo.");
+    return;
+  }
+
+  if (qty <= 0 || unitCost <= 0) {
+    showError("Carga cantidad y costo validos.");
+    return;
+  }
+
+  state.draftExpenseItems.push({
+    id: crypto.randomUUID(),
+    perfumeId: perfume?.id || "",
+    name,
+    brand: refs.expenseBrandInput.value.trim() || perfume?.brand || "",
+    ml: Number(refs.expenseMlInput.value) || perfume?.ml || 0,
+    qty,
+    unitCost,
+    salePrice,
+  });
+
+  refs.expenseProductSelect.value = "";
+  refs.expenseNewProductInput.value = "";
+  refs.expenseNewProductInput.disabled = false;
+  refs.expenseQtyInput.value = 1;
+  refs.expenseUnitCostInput.value = 0;
+  refs.expenseSalePriceInput.value = 0;
+  renderExpenseDraft();
+  showNotification("Perfume agregado a la compra.");
+}
+
+function removeExpenseDraftItem(itemId) {
+  state.draftExpenseItems = state.draftExpenseItems.filter((item) => item.id !== itemId);
+  renderExpenseDraft();
+  showNotification("Perfume quitado de la compra.");
+}
+
+function getDraftExpenseTotal() {
+  return roundCurrency(state.draftExpenseItems.reduce((sum, item) => sum + item.unitCost * item.qty, 0));
+}
+
+function resetExpenseForm() {
+  refs.orderForm.reset();
+  refs.orderForm.expenseId.value = "";
+  state.draftExpenseItems = [];
+  refs.saveExpenseBtn.textContent = "Guardar gasto";
+  refs.cancelExpenseEditBtn.hidden = true;
+  seedDefaultDates();
+  syncExpenseProductFields();
+  renderExpenseDraft();
+}
+
+function startExpenseEdit(expenseId) {
+  const expense = state.expenses.find((item) => item.id === expenseId);
+  if (!expense) return;
+
+  refs.orderForm.expenseId.value = expense.id;
+  refs.orderForm.supplier.value = expense.supplier || "";
+  refs.orderForm.date.value = expense.date || new Date().toISOString().slice(0, 10);
+  refs.orderForm.category.value = expense.category || "Otro";
+  refs.orderForm.amount.value = expense.amount || 0;
+  refs.orderForm.shippingAmount.value = expense.shippingAmount || 0;
+  refs.orderForm.deliveryStatus.value = expense.inventoryApplied ? "delivered" : (expense.deliveryStatus || "pending");
+  refs.orderForm.notes.value = expense.notes || "";
+  state.draftExpenseItems = Array.isArray(expense.items)
+    ? expense.items.map((item) => ({ ...item, id: crypto.randomUUID() }))
+    : [];
+  refs.saveExpenseBtn.textContent = "Guardar cambios";
+  refs.cancelExpenseEditBtn.hidden = false;
+  syncExpenseProductFields();
+  renderExpenseDraft();
+  refs.orderForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function syncDollarPurchaseAmount() {
@@ -2156,7 +2450,7 @@ function renderExpensesTable() {
 
   if (!state.expenses.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="5">Todavia no registraste gastos.</td>`;
+    row.innerHTML = `<td colspan="7">Todavia no registraste gastos.</td>`;
     refs.ordersTableBody.appendChild(row);
     return;
   }
@@ -2166,14 +2460,25 @@ function renderExpensesTable() {
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .forEach((expense) => {
       const row = document.createElement("tr");
+      const hasItems = Array.isArray(expense.items) && expense.items.length;
       row.innerHTML = `
         <td data-label="Fecha">${formatDate(expense.date)}</td>
         <td data-label="Detalle">${escapeHtml(expense.supplier || "-")}</td>
         <td data-label="Categoria">${escapeHtml(expense.category || "-")}</td>
+        <td data-label="Items">${hasItems ? expense.items.map((item) => `${escapeHtml(item.name)} x${item.qty}`).join(", ") : "-"}</td>
+        <td data-label="Estado">${hasItems ? (expense.inventoryApplied ? "Entregado" : "No entregado") : "-"}</td>
         <td data-label="Monto">${formatCurrency(expense.amount)}</td>
-        <td data-label="Accion"><button type="button" class="danger-text-button">Borrar</button></td>
+        <td data-label="Accion">
+          <div class="table-actions">
+            ${hasItems ? `<button type="button" class="text-button toggle-delivery-button">${expense.inventoryApplied ? "Marcar no entregado" : "Marcar entregado"}</button>` : ""}
+            <button type="button" class="text-button edit-expense-button">Editar</button>
+            <button type="button" class="danger-text-button delete-expense-button">Borrar</button>
+          </div>
+        </td>
       `;
-      row.querySelector("button").addEventListener("click", () => deleteExpense(expense.id));
+      row.querySelector(".edit-expense-button").addEventListener("click", () => startExpenseEdit(expense.id));
+      row.querySelector(".delete-expense-button").addEventListener("click", () => deleteExpense(expense.id));
+      row.querySelector(".toggle-delivery-button")?.addEventListener("click", () => toggleExpenseDelivery(expense.id));
       refs.ordersTableBody.appendChild(row);
     });
 }
@@ -2387,8 +2692,17 @@ function exportExcelWorkbook() {
       {
         name: "Gastos",
         rows: [
-          ["Fecha", "Detalle", "Categoria", "Monto", "Notas"],
-          ...state.expenses.map((item) => [item.date, item.supplier, item.category, item.amount, item.notes]),
+          ["Fecha", "Detalle", "Categoria", "Items", "Estado", "Monto", "Envio", "Notas"],
+          ...state.expenses.map((item) => [
+            item.date,
+            item.supplier,
+            item.category,
+            item.items?.map((entry) => `${entry.name} x${entry.qty}`).join(", ") || "",
+            item.items?.length ? (item.inventoryApplied ? "Entregado" : "No entregado") : "",
+            item.amount,
+            item.shippingAmount || 0,
+            item.notes,
+          ]),
         ],
       },
       {
@@ -2448,6 +2762,7 @@ async function clearAllData() {
   state.dollarPurchases = [];
   state.dollarSpends = [];
   state.draftSaleItems = [];
+  state.draftExpenseItems = [];
   state.history = normalizeHistory();
   Object.assign(priceFormulaState, normalizePriceFormula());
   saveState();
@@ -2497,6 +2812,20 @@ async function loadDemoData() {
       date: "2026-04-24",
       amount: 180000,
       notes: "Pedido semanal",
+      items: [
+        {
+          id: crypto.randomUUID(),
+          perfumeId: state.perfumes[0].id,
+          name: state.perfumes[0].name,
+          brand: state.perfumes[0].brand,
+          ml: state.perfumes[0].ml,
+          qty: 2,
+          unitCost: 90000,
+          salePrice: state.perfumes[0].price,
+        },
+      ],
+      deliveryStatus: "pending",
+      inventoryApplied: false,
       createdAt: new Date().toISOString(),
     },
   ];
@@ -2535,6 +2864,7 @@ async function loadDemoData() {
   };
 
   state.draftSaleItems = [];
+  state.draftExpenseItems = [];
   Object.assign(priceFormulaState, normalizePriceFormula());
   saveState();
   renderAll();
