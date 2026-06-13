@@ -140,9 +140,15 @@ function cacheElements() {
   refs.productsTableBody = document.getElementById("productsTableBody");
 
   refs.saleForm = document.getElementById("saleForm");
+  refs.saleItemTypeSelect = document.getElementById("saleItemTypeSelect");
+  refs.saleProductField = document.getElementById("saleProductField");
   refs.saleProductSelect = document.getElementById("saleProductSelect");
   refs.saleQtyInput = document.getElementById("saleQtyInput");
+  refs.saleUnitPriceLabel = document.getElementById("saleUnitPriceLabel");
   refs.saleUnitPriceInput = document.getElementById("saleUnitPriceInput");
+  refs.saleDecantFields = document.getElementById("saleDecantFields");
+  refs.saleDecantNameInput = document.getElementById("saleDecantNameInput");
+  refs.saleDecantMlSelect = document.getElementById("saleDecantMlSelect");
   refs.saleInstallmentFields = document.getElementById("saleInstallmentFields");
   refs.saleFirstPaymentInput = document.getElementById("saleFirstPaymentInput");
   refs.saleSecondDueDateInput = document.getElementById("saleSecondDueDateInput");
@@ -217,9 +223,10 @@ function bindEvents() {
   refs.scentProfileFilter.addEventListener("change", renderProductsTable);
   refs.productSort.addEventListener("change", renderProductsTable);
 
+  refs.saleItemTypeSelect.addEventListener("change", syncSaleItemFields);
   refs.saleProductSelect.addEventListener("change", syncSaleUnitPrice);
   refs.saleForm.paymentMethod.addEventListener("change", () => {
-    syncSaleUnitPrice();
+    syncSaleItemFields();
     syncSalePaymentFields(true);
     renderSaleDraft();
   });
@@ -398,6 +405,10 @@ function switchTab(targetId) {
 async function loadState() {
   try {
     const config = getRemoteDatabaseConfig();
+    if (config.enabled && authSession) {
+      await ensureAuthSessionFresh(config);
+    }
+
     if (config.enabled && !isRemoteAuthReady()) {
       hydrateState({});
       return;
@@ -444,6 +455,10 @@ async function readDatabaseState() {
 }
 
 async function writeDatabaseState(snapshot) {
+  const config = getRemoteDatabaseConfig();
+  if (config.enabled && authSession) {
+    await ensureAuthSessionFresh(config);
+  }
   await writeLocalDatabaseState(snapshot);
   await syncRemoteDatabaseState(snapshot);
 }
@@ -549,6 +564,34 @@ function getRemoteHeaders(config, extraHeaders = {}) {
     Authorization: `Bearer ${accessToken || config.anonKey}`,
     ...extraHeaders,
   };
+}
+
+async function ensureAuthSessionFresh(config = getRemoteDatabaseConfig()) {
+  if (!authSession?.refresh_token || !authSession?.expires_at) return;
+  const expiresAtMs = Number(authSession.expires_at) * 1000;
+  if (Number.isFinite(expiresAtMs) && expiresAtMs - Date.now() > 60000) return;
+
+  const refreshed = await refreshAuthSession(config, authSession.refresh_token);
+  setAuthSession(refreshed);
+}
+
+async function refreshAuthSession(config, refreshToken) {
+  if (isApiBackendEnabled(config)) return authSession;
+
+  const response = await fetch(`${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getSupabaseErrorMessage(response));
+  }
+
+  return response.json();
 }
 
 async function readRemoteDatabaseState() {
@@ -732,8 +775,10 @@ function normalizeSale(sale = {}, today) {
   const items = Array.isArray(sale.items)
     ? sale.items.map((item) => ({
         id: item.id || crypto.randomUUID(),
+        type: item.type || (item.isDecant ? "Decant" : "Perfume"),
         perfumeId: item.perfumeId || "",
         name: item.name || "Sin nombre",
+        decantMl: Number(item.decantMl) || 0,
         qty: Number(item.qty) || 1,
         basePrice: Number(item.basePrice) || Number(item.unitPrice) || 0,
         paymentMethod: item.paymentMethod || sale.paymentMethod || "Transferencia",
@@ -1066,10 +1111,13 @@ function findPerfumeIndexByTiendanubeProduct(product) {
 async function syncTiendanubeStockForSale(sale) {
   if (!getAccessToken()) return;
 
+  const stockItems = sale.items.filter((item) => item.type !== "Decant" && item.perfumeId);
+  if (!stockItems.length) return;
+
   try {
     await callNetlifyFunction("tiendanube-update-stock", {
       saleId: sale.id,
-      items: sale.items,
+      items: stockItems,
     });
     showNotification("Stock sincronizado con Tiendanube.");
   } catch (error) {
@@ -1427,7 +1475,7 @@ function populateProductSelects() {
 
   refs.saleProductSelect.innerHTML = `<option value="">Selecciona un perfume</option>${perfumeOptions}`;
   refs.expenseProductSelect.innerHTML = `<option value="">Perfume nuevo o sin seleccionar</option>${perfumeOptions}`;
-  syncSaleUnitPrice();
+  syncSaleItemFields();
   syncExpenseProductFields();
 }
 
@@ -1452,7 +1500,31 @@ function isInstallmentPaymentMethod(methodKey) {
   return methodKey === "Personalizado2";
 }
 
+function isDecantSaleMode() {
+  return refs.saleItemTypeSelect.value === "Decant";
+}
+
+function syncSaleItemFields() {
+  const isDecant = isDecantSaleMode();
+  refs.saleProductField.hidden = isDecant;
+  refs.saleDecantFields.hidden = !isDecant;
+  refs.saleUnitPriceLabel.textContent = isDecant ? "Precio personalizado" : "Cobras neto por unidad";
+  refs.saleUnitPriceInput.readOnly = !isDecant && !isCustomPaymentMethod(refs.saleForm.paymentMethod.value);
+
+  if (isDecant) {
+    refs.saleUnitPriceInput.value = "";
+    return;
+  }
+
+  syncSaleUnitPrice();
+}
+
 function syncSaleUnitPrice() {
+  if (isDecantSaleMode()) {
+    refs.saleUnitPriceInput.readOnly = false;
+    return;
+  }
+
   const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
   if (!perfume) {
     refs.saleUnitPriceInput.value = "";
@@ -1480,12 +1552,25 @@ function syncSalePaymentFields(resetDueDate = false) {
 }
 
 function addSaleDraftItem() {
-  const perfume = state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
+  const isDecant = isDecantSaleMode();
+  const perfume = isDecant ? null : state.perfumes.find((item) => item.id === refs.saleProductSelect.value);
+  const decantName = refs.saleDecantNameInput.value.trim();
+  const decantMl = Number(refs.saleDecantMlSelect.value) || 0;
   const quantity = Number(refs.saleQtyInput.value) || 0;
   const unitNet = Number(refs.saleUnitPriceInput.value) || 0;
 
-  if (!perfume) {
+  if (!isDecant && !perfume) {
     showError("Selecciona un perfume.");
+    return;
+  }
+
+  if (isDecant && !decantName) {
+    showError("Escribi el nombre del decant.");
+    return;
+  }
+
+  if (isDecant && ![5, 10].includes(decantMl)) {
+    showError("Selecciona si el decant es de 5 ml o 10 ml.");
     return;
   }
 
@@ -1499,26 +1584,37 @@ function addSaleDraftItem() {
     return;
   }
 
-  const reservedQty = getDraftSaleQtyForPerfume(perfume.id);
-  if (reservedQty + quantity > perfume.stock) {
-    showError(`No tienes stock suficiente. Stock actual: ${perfume.stock}`);
+  if (isDecant && unitNet <= 0) {
+    showError("Carga un precio personalizado para el decant.");
     return;
+  }
+
+  if (!isDecant) {
+    const reservedQty = getDraftSaleQtyForPerfume(perfume.id);
+    if (reservedQty + quantity > perfume.stock) {
+      showError(`No tienes stock suficiente. Stock actual: ${perfume.stock}`);
+      return;
+    }
   }
 
   state.draftSaleItems.push({
     id: crypto.randomUUID(),
-    perfumeId: perfume.id,
-    name: perfume.name,
+    type: isDecant ? "Decant" : "Perfume",
+    perfumeId: perfume?.id || "",
+    name: isDecant ? `${decantName} (${decantMl} ml)` : perfume.name,
+    decantMl: isDecant ? decantMl : 0,
     qty: quantity,
-    basePrice: perfume.price,
+    basePrice: isDecant ? unitNet : perfume.price,
     paymentMethod: refs.saleForm.paymentMethod.value,
     unitNet,
-    tiendanubeProductId: perfume.tiendanubeProductId || "",
-    tiendanubeVariantId: perfume.tiendanubeVariantId || "",
-    tiendanubeSku: perfume.tiendanubeSku || "",
+    tiendanubeProductId: perfume?.tiendanubeProductId || "",
+    tiendanubeVariantId: perfume?.tiendanubeVariantId || "",
+    tiendanubeSku: perfume?.tiendanubeSku || "",
   });
 
   refs.saleQtyInput.value = 1;
+  refs.saleDecantNameInput.value = "";
+  refs.saleUnitPriceInput.value = isDecant ? "" : refs.saleUnitPriceInput.value;
   renderSaleDraft();
   showNotification("Item agregado a la venta.");
 }
@@ -1614,7 +1710,7 @@ function handleSaleSubmit(event) {
   }
 
   const groupedQty = state.draftSaleItems.reduce((acc, item) => {
-    acc[item.perfumeId] = (acc[item.perfumeId] || 0) + item.qty;
+    if (item.type !== "Decant") acc[item.perfumeId] = (acc[item.perfumeId] || 0) + item.qty;
     return acc;
   }, {});
 
@@ -1642,6 +1738,7 @@ function handleSaleSubmit(event) {
   sale.total = getPaymentsPaidTotal(sale.payments);
 
   sale.items.forEach((item) => {
+    if (item.type === "Decant") return;
     const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
     if (perfume) {
       perfume.stock = Math.max(0, perfume.stock - item.qty);
@@ -1652,7 +1749,7 @@ function handleSaleSubmit(event) {
   state.draftSaleItems = [];
   refs.saleForm.reset();
   seedDefaultDates();
-  syncSaleUnitPrice();
+  syncSaleItemFields();
   saveState();
   renderAll();
   showNotification("Venta registrada correctamente.");
@@ -1667,6 +1764,7 @@ async function deleteSale(saleId) {
   if (!confirmed) return;
 
   sale.items.forEach((item) => {
+    if (item.type === "Decant") return;
     const perfume = state.perfumes.find((entry) => entry.id === item.perfumeId);
     if (perfume) {
       perfume.stock += item.qty;

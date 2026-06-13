@@ -442,6 +442,13 @@
 
               <div class="full-width inline-form">
                 <label>
+                  Tipo
+                  <select id="saleItemTypeSelect">
+                    <option value="Perfume">Perfume</option>
+                    <option value="Decant">Decant</option>
+                  </select>
+                </label>
+                <label id="saleProductField">
                   Producto
                   <select id="saleProductSelect"></select>
                 </label>
@@ -450,8 +457,22 @@
                   <input type="number" id="saleQtyInput" min="1" step="1" value="1">
                 </label>
                 <label>
-                  Cobras neto por unidad
+                  <span id="saleUnitPriceLabel">Cobras neto por unidad</span>
                   <input type="number" id="saleUnitPriceInput" min="0" step="0.01" readonly>
+                </label>
+              </div>
+
+              <div class="full-width decant-fields" id="saleDecantFields" hidden>
+                <label>
+                  Nombre del decant
+                  <input type="text" id="saleDecantNameInput" placeholder="Ej: Yara">
+                </label>
+                <label>
+                  Cantidad de ml
+                  <select id="saleDecantMlSelect">
+                    <option value="5">5 ml</option>
+                    <option value="10">10 ml</option>
+                  </select>
                 </label>
               </div>
 
