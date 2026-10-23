@@ -89,6 +89,8 @@ let remoteDatabaseWarningShown = false;
 let authSession = null;
 
 const refs = {};
+const STOCK_PAGE_SIZE = 10;
+let stockPage = 1;
 const priceFormulaState = {
   baseExtra: 5000,
   markupMultiplier: 1.5,
@@ -123,6 +125,8 @@ function cacheElements() {
   refs.paymentBreakdown = document.getElementById("paymentBreakdown");
   refs.channelBreakdown = document.getElementById("channelBreakdown");
   refs.lowStockList = document.getElementById("lowStockList");
+  refs.stockPagination = document.getElementById("stockPagination");
+  refs.pendingInstallments = document.getElementById("pendingInstallments");
   refs.recentSales = document.getElementById("recentSales");
   refs.pendingOrders = document.getElementById("pendingOrders");
   refs.historyForm = document.getElementById("historyForm");
@@ -200,6 +204,17 @@ function cacheElements() {
 }
 
 function bindEvents() {
+  refs.stockPagination.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-stock-page]");
+    if (!button || button.disabled) return;
+    stockPage = Number(button.dataset.stockPage);
+    renderStockSummary();
+  });
+  refs.pendingInstallments.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-pay-sale]");
+    if (!button) return;
+    markNextInstallmentPaid(button.dataset.paySale, button.dataset.paymentId);
+  });
   refs.sidebarToggle.addEventListener("click", toggleSidebar);
   refs.mainContent.addEventListener("click", closeSidebarOnSmallScreens);
   document.addEventListener("keydown", closeSidebarWithEscape);
@@ -256,6 +271,7 @@ function bindEvents() {
   refs.syncTiendanubeBtn.addEventListener("click", syncTiendanubeProducts);
   refs.clearAllDataBtn.addEventListener("click", clearAllData);
   refs.priceFormulaForm.addEventListener("input", handlePriceFormulaInput);
+  refs.priceCalculatorTableBody.addEventListener("click", handleApplySuggestedPrice);
   refs.authLoginForm.addEventListener("submit", handleLoginSubmit);
   refs.authRegisterForm.addEventListener("submit", handleRegisterSubmit);
   refs.authLogoutBtn.addEventListener("click", handleLogout);
@@ -2554,18 +2570,20 @@ function getNextPendingPayment(sale) {
   return getSalePayments(sale).find((payment) => !payment.paid && payment.amount > 0);
 }
 
-function markNextInstallmentPaid(saleId) {
+function markNextInstallmentPaid(saleId, paymentId) {
   const sale = state.sales.find((item) => item.id === saleId);
   if (!sale) return;
 
-  const payment = getNextPendingPayment(sale);
+  const payment = paymentId
+    ? getSalePayments(sale).find((item) => String(item.id) === paymentId && !item.paid && item.amount > 0)
+    : getNextPendingPayment(sale);
   if (!payment) {
     showNotification("Esa venta no tiene cuotas pendientes.");
     return;
   }
 
   payment.paid = true;
-  payment.paidDate = new Date().toISOString().slice(0, 10);
+  payment.paidDate = getLocalDateString();
   sale.payments = getSalePayments(sale);
   sale.total = getPaymentsPaidTotal(sale.payments);
   saveState();
@@ -3109,17 +3127,8 @@ function renderSummaryDashboard() {
     `)
     .join("");
 
-  renderStackList(
-    refs.lowStockList,
-    state.perfumes
-      .slice()
-      .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name, "es"))
-      .map((item) => ({
-        title: item.name,
-        subtitle: `${item.brand || "Sin marca"} · Stock actual: ${item.stock}`,
-      })),
-    "Todavia no cargaste perfumes."
-  );
+  renderStockSummary();
+  renderPendingInstallments();
 
   renderStackList(
     refs.recentSales,
@@ -3201,6 +3210,24 @@ function renderAnalysis() {
   );
 }
 
+function handleApplySuggestedPrice(event) {
+  const button = event.target.closest("button[data-apply-price]");
+  if (!button) return;
+  const perfume = state.perfumes.find((item) => String(item.id) === button.dataset.applyPrice);
+  if (!perfume) return;
+  const suggestedPrice = calculateSuggestedPrice(perfume.cost);
+  if (!Number.isFinite(suggestedPrice) || suggestedPrice < 0) {
+    showError("Revisa el costo y la formula antes de actualizar el precio.");
+    return;
+  }
+  if (Number(perfume.price) === suggestedPrice) return;
+  perfume.price = suggestedPrice;
+  saveState();
+  renderAll();
+  syncSaleUnitPrice();
+  showNotification(`Precio de ${perfume.name} actualizado a ${formatCurrency(suggestedPrice)}.`);
+}
+
 function renderPriceCalculator() {
   refs.priceFormulaForm.baseExtra.value = priceFormulaState.baseExtra;
   refs.priceFormulaForm.markupMultiplier.value = priceFormulaState.markupMultiplier;
@@ -3211,7 +3238,7 @@ function renderPriceCalculator() {
 
   if (!state.perfumes.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="11">Todavia no cargaste perfumes para calcular precios.</td>`;
+    row.innerHTML = `<td colspan="12">Todavia no cargaste perfumes para calcular precios.</td>`;
     refs.priceCalculatorTableBody.appendChild(row);
     return;
   }
@@ -3245,7 +3272,8 @@ function renderPriceCalculator() {
         <td data-label="Promo 20%">${formatCurrency(promoPrice)}</td>
         <td data-label="Ganancia">${formatCurrency(suggestedPrice - (perfume.cost || 0))}</td>
         <td data-label="Ganancia transf.">${formatCurrency(transferPrice - (perfume.cost || 0))}</td>
-        <td data-label="Ganancia promo">${formatCurrency(promoPrice - (perfume.cost || 0))}</td>
+        <td data-label="Ganancia 20%">${formatCurrency(promoPrice - (perfume.cost || 0))}</td>
+        <td data-label="Acciones"><button type="button" class="secondary-button apply-price-button" title="Aplicar precio sugerido" aria-label="Aplicar precio sugerido para ${escapeHtml(perfume.name)}" data-apply-price="${escapeHtml(String(perfume.id))}" ${needsPriceReview ? "" : "disabled"}>Aplicar</button></td>
       `;
       refs.priceCalculatorTableBody.appendChild(row);
     });
@@ -3319,6 +3347,8 @@ function getPendingSalePayments() {
       .filter((payment) => !payment.paid && payment.amount > 0)
       .map((payment) => ({
         saleId: sale.id,
+        paymentId: payment.id,
+        label: payment.label,
         customer: sale.customer || "Sin cliente",
         amount: Number(payment.amount) || 0,
         dueDate: payment.dueDate || sale.date,
@@ -3475,4 +3505,48 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function getLocalDateString(date = new Date()) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+}
+
+function isPaymentDueSoon(dueDate, today = new Date()) {
+  const limit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
+  return Boolean(dueDate && dueDate <= getLocalDateString(limit));
+}
+
+function renderPendingInstallments() {
+  const payments = getPendingSalePayments();
+  if (!payments.length) {
+    refs.pendingInstallments.innerHTML = '<p class="empty-state">No hay cuotas pendientes.</p>';
+    return;
+  }
+  refs.pendingInstallments.innerHTML = payments.map((item) => `
+    <div class="stack-item pending-installment ${isPaymentDueSoon(item.dueDate) ? "payment-due-soon" : ""}">
+      <div>
+        <strong>${escapeHtml(item.customer)} · ${escapeHtml(item.label || "Cuota")}</strong>
+        <p>${formatCurrency(item.amount)} · Vence ${formatDate(item.dueDate)}</p>
+        ${isPaymentDueSoon(item.dueDate) ? '<span class="payment-due-label">Vencida o vence dentro de 7 dias</span>' : ""}
+      </div>
+      <button type="button" class="secondary-button" data-pay-sale="${escapeHtml(String(item.saleId))}" data-payment-id="${escapeHtml(String(item.paymentId))}">Marcar como pagada</button>
+    </div>
+  `).join("");
+}
+
+function renderStockSummary() {
+  const perfumes = state.perfumes.filter((item) => item.stock > 0)
+    .sort((a, b) => a.stock - b.stock || a.name.localeCompare(b.name, "es"));
+  const pages = Math.max(1, Math.ceil(perfumes.length / STOCK_PAGE_SIZE));
+  stockPage = Math.min(pages, Math.max(1, stockPage));
+  const offset = (stockPage - 1) * STOCK_PAGE_SIZE;
+  renderStackList(refs.lowStockList, perfumes.slice(offset, offset + STOCK_PAGE_SIZE).map((item) => ({
+    title: item.name,
+    subtitle: `${item.brand || "Sin marca"} · Stock actual: ${item.stock}`,
+  })), "No hay perfumes en stock.");
+  refs.stockPagination.innerHTML = perfumes.length ? `
+    <button type="button" class="secondary-button" data-stock-page="${stockPage - 1}" ${stockPage === 1 ? "disabled" : ""}>Anterior</button>
+    <span role="status">Pagina ${stockPage} de ${pages} · ${perfumes.length} perfumes</span>
+    <button type="button" class="secondary-button" data-stock-page="${stockPage + 1}" ${stockPage === pages ? "disabled" : ""}>Siguiente</button>
+  ` : "";
 }

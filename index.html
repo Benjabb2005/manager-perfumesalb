@@ -156,11 +156,12 @@
             </form>
           </article>
 
-          <article class="panel panel-span-2">
+          <article class="panel stock-summary-panel">
             <div class="panel-header">
               <h4>Stock actual</h4>
             </div>
             <div id="lowStockList"></div>
+            <nav id="stockPagination" class="stock-pagination" aria-label="Paginas de stock"></nav>
           </article>
 
           <article class="panel">
@@ -168,6 +169,12 @@
               <h4>Ultimas ventas</h4>
             </div>
             <div id="recentSales"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header"><h4>Cuotas pendientes</h4></div>
+            <p>En rojo: vencidas o con vencimiento dentro de 7 dias.</p>
+            <div id="pendingInstallments"></div>
           </article>
 
           <article class="panel">
@@ -390,7 +397,8 @@
                     <th>Promo 20%</th>
                     <th>Ganancia</th>
                     <th>Ganancia transf.</th>
-                    <th>Ganancia promo</th>
+                    <th>Ganancia 20%</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="priceCalculatorTableBody"></tbody>
